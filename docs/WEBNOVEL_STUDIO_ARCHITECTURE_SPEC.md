@@ -13,38 +13,68 @@ WebNovel-Studio는 웹소설 작가의 주관적 '감(感)'과 막연한 직관�
 
 ### 1.2 전체 개념도 (Architecture & Conceptual Diagrams)
 
+```mermaid
+flowchart TB
+    subgraph Client [클라이언트 프론트엔드 - React 19]
+        TopGNB[상단 Top GNB - 프로젝트 / AI제공자 / PDF]
+        LeftGNB[좌측 GNB 사이드바 - 대시보드 / 100화타임라인 / 씬보드 / 복선DB]
+        MainView[중앙 뷰포트 - 대시보드 / 5단계생성기 / 씬집필기 / AI코치]
+    end
+
+    subgraph Server [Node.js Express 백엔드]
+        APIProxy[REST API 프록시]
+        Timeout[withTimeout 안전 레이어]
+        ViteMid[Vite 미들웨어 - HMR 비활성화]
+        ZipArchiver[옵시디언 6대 폴더 ZIP 패키징]
+    end
+
+    subgraph AI [멀티 AI 게이트웨이]
+        Gemini[Google Gemini 3.8 Flash]
+        Claude[Anthropic Claude 3.5 Sonnet]
+        GPT[OpenAI GPT-4o]
+    end
+
+    Client <-->|REST / JSON| Server
+    Server <-->|Model Routing| AI
 ```
-[ 클라이언트 영역 (React 19 + TypeScript + Tailwind CSS) ]
-  ├── 1. Top GNB (작품 선택기, AI 제공자 전환, PDF 출력, 옵시디언 내보내기, 사용자 프로필)
-  ├── 2. Left GNB (대시보드, 4막 6아크 마스터맵, 24챕터 씬보드, 복선 DB, 100화 기획 생성기)
-  ├── 3. 중앙 뷰포트 (Dynamic View Routing)
-  │     ├── [View A] 메인 관제 대시보드 (진행률, 아크 달성률, 프로젝트 카드)
-  │     ├── [View B] 4막 6아크 타임라인 (정량적 100화 시각화)
-  │     ├── [View C] 작품 개요 & 스토리 바이블 (로그라인, 인물, 세계관, 문체)
-  │     ├── [View D] 챕터 보드 & 씬 집필기 (기-승-전-결 씬 분할, 단락 글자 수)
-  │     ├── [View E] 복선 & 미결 과제 추적 DB (심기/회수 회차, 미회수율 경고)
-  │     ├── [View F] 5단계 공학적 소설 생성기 (로그라인 → 100화 씬트리)
-  │     └── [View G] AI 페어 라이팅 코치 관제탑 (사이다 지수, 클리프행어 분석)
-  └── 4. 레이어 모달 시스템 (PdfExportModal, WorkspaceModal, SettingsModal, NewProjectModal)
 
-                     ▲                       ▲
-                     │ (REST / JSON)         │ (Client LocalStorage Sync)
-                     ▼                       ▼
-[ 서버 영역 (Node.js Express + TSX Runtime / Port 3000) ]
-  ├── /api/generate-step-1 ~ 5 (공학적 단계별 AI 프롬프트 체인)
-  ├── /api/ai-coach (문체 진단, 씬 퇴고, 사이다 지수 판정)
-  ├── /api/ai/models & providers (Claude / OpenAI / Gemini 동적 쿼리)
-  ├── /api/export-obsidian-zip (Obsidian 6대 폴더 마크다운 패키징)
-  ├── /api/export-source-zip (프로젝트 소스코드 백업 패키징)
-  └── withTimeout (3.5s ~ 5s 지능형 타임아웃 & Fallback 보증)
+### 1.3 Claude Code Skills ↔ WebNovel-Studio GUI 매핑 구조도
 
-                     ▲
-                     │ (Multi-Model AI Proxy API)
-                     ▼
-[ AI 파운데이션 모델 엔진 (클라우드 모델 게이트웨이) ]
-  ├── Google Gemini 3.8 Flash (초고속 씬 비트 & 100화 플롯 생성)
-  ├── Anthropic Claude 3.5 Sonnet (문체 감수 및 캐릭터 보이스 피드백)
-  └── OpenAI GPT-4o / 6.1 (복선 논리 검증 및 플롯 꼬임 해소)
+```mermaid
+graph LR
+    subgraph Skills [Claude Code CLI 에이전트 스킬]
+        S1["/novel-init\n로그라인 기획"]
+        S2["/char-bible\n4대 인물 설계"]
+        S3["/world-rules\n세계관 3대 철칙"]
+        S4["/arc-partition\n4막 6아크 분할"]
+        S5["/scene-beats\n24챕터 씬트리"]
+        S6["/foreshadow-track\n복선 심기/회수"]
+        S7["/pair-write\n화당 6,500자 집필"]
+        S8["/cider-audit\n사이다 지수 점검"]
+        S9["/obsidian-export\n6대 폴더 아카이빙"]
+    end
+
+    subgraph Studio [WebNovel-Studio 웹 플랫폼]
+        W1["[Step 1] 장르·로그라인 뷰"]
+        W2["[Step 2] 인물 바이블 에디터"]
+        W3["[Step 3] 세계관 규칙 에디터"]
+        W4["[Step 4] 4막 6아크 배분기"]
+        W5["[Step 5] 씬 비트 & 챕터 보드"]
+        W6["[목록 & DB] 복선 추적기"]
+        W7["[챕터 보드] 실시간 집필 뷰어"]
+        W8["[AI 코치] 관제탑 스튜디오"]
+        W9["[옵시디언] 1-Click ZIP 다운로드"]
+    end
+
+    S1 ==> W1
+    S2 ==> W2
+    S3 ==> W3
+    S4 ==> W4
+    S5 ==> W5
+    S6 ==> W6
+    S7 ==> W7
+    S8 ==> W8
+    S9 ==> W9
 ```
 
 ---

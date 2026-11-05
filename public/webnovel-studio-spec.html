@@ -7,6 +7,12 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });
+    });
+  </script>
   <style>
     @media print {
       .no-print { display: none !important; }
@@ -70,31 +76,72 @@
         1. 전체 개념도 (시스템 아키텍처 & 공학적 파이프라인)
       </h2>
 
-      <h3 class="text-sm font-bold text-slate-800 mb-2">1.1 클라이언트-서버-멀티 모델 AI 프록시 구조도</h3>
-      <div class="bg-slate-950 text-slate-100 p-5 rounded-xl font-mono text-xs leading-relaxed overflow-x-auto mb-6">
-<pre class="text-emerald-400 font-medium">+---------------------------------------------------------------------------------------+
-|                               WebNovel-Studio 프론트엔드 (React SPA)                    |
-|  - Top GNB: 프로젝트 스위처 / AI 제공자 선택 / PDF 출력 / 옵시디언 동기화 / 사용자 정보     |
-|  - Left GNB: 관제 대시보드 / 100화 타임라인 / 씬보드 / 복선DB / 100화 플롯 메이커           |
-|  - Main Viewport: 대시보드 / 타임라인 / 씬보드 / 복선DB / AI 코치 / 옵시디언 트리        |
-+-------------------------------------------+-------------------------------------------+
-                                            │ REST / JSON (Express Vite Proxy)
-                                            ▼
-+---------------------------------------------------------------------------------------+
-|                          Node.js Express 백엔드 (server.ts / Port 3000)                |
-|  - Vite Middleware Mode (hmr: false - 클라우드 WebSocket 에러 원천 차단)              |
-|  - withTimeout() 지능형 타임아웃 레이어 (3.5s ~ 5s 한도 내 안전 폴백 보증)            |
-|  - /api/generate-step-1~5 (단계별 프롬프트 엔지니어링)                                |
-|  - /api/ai-coach (문체/사이다/클리프행어 진단 프록시)                                  |
-|  - /api/export-obsidian-zip (6대 폴더 마크다운 자동 생성)                             |
-+-------------------------------------------+-------------------------------------------+
-                                            │ Multi-Provider AI Routing
-                                            ▼
-+---------------------------------------------------------------------------------------+
-|                                AI 파운데이션 모델 게이트웨이                           |
-|  [Google Gemini 3.8 Flash]          [Anthropic Claude 3.5 Sonnet]     [OpenAI GPT-4o]  |
-|  - 초고속 100화 씬 비트 생성         - 캐릭터 대사 감수 및 문체 개선    - 복선 논리 검증 |
-+---------------------------------------------------------------------------------------+</pre>
+      <h3 class="text-sm font-bold text-slate-800 mb-2">1.1 클라이언트-서버-멀티 모델 AI 프록시 구조도 (Mermaid)</h3>
+      <div class="bg-white p-4 rounded-xl border border-slate-300 shadow-sm mb-6 flex justify-center overflow-x-auto">
+        <div class="mermaid">
+flowchart TB
+    subgraph Client [클라이언트 프론트엔드 - React 19]
+        TopGNB[상단 Top GNB - 프로젝트 / AI제공자 / PDF]
+        LeftGNB[좌측 GNB 사이드바 - 대시보드 / 100화타임라인 / 씬보드 / 복선DB]
+        MainView[중앙 뷰포트 - 대시보드 / 5단계생성기 / 씬집필기 / AI코치]
+    end
+
+    subgraph Server [Node.js Express 백엔드]
+        APIProxy[REST API 프록시]
+        Timeout[withTimeout 안전 레이어]
+        ViteMid[Vite 미들웨어 - HMR 비활성화]
+        ZipArchiver[옵시디언 6대 폴더 ZIP 패키징]
+    end
+
+    subgraph AI [멀티 AI 게이트웨이]
+        Gemini[Google Gemini 3.8 Flash]
+        Claude[Anthropic Claude 3.5 Sonnet]
+        GPT[OpenAI GPT-4o]
+    end
+
+    Client <-->|REST / JSON| Server
+    Server <-->|Model Routing| AI
+        </div>
+      </div>
+
+      <h3 class="text-sm font-bold text-slate-800 mb-2">1.2 Claude Code Skills ↔ WebNovel-Studio GUI 파이프라인 매핑 구조도</h3>
+      <div class="bg-white p-4 rounded-xl border border-slate-300 shadow-sm mb-6 flex justify-center overflow-x-auto">
+        <div class="mermaid">
+graph LR
+    subgraph Skills [Claude Code CLI 에이전트 스킬]
+        S1["/novel-init\n로그라인 기획"]
+        S2["/char-bible\n4대 인물 설계"]
+        S3["/world-rules\n세계관 3대 철칙"]
+        S4["/arc-partition\n4막 6아크 분할"]
+        S5["/scene-beats\n24챕터 씬트리"]
+        S6["/foreshadow-track\n복선 심기/회수"]
+        S7["/pair-write\n화당 6,500자 집필"]
+        S8["/cider-audit\n사이다 지수 점검"]
+        S9["/obsidian-export\n6대 폴더 아카이빙"]
+    end
+
+    subgraph Studio [WebNovel-Studio 웹 플랫폼]
+        W1["[Step 1] 장르·로그라인 뷰"]
+        W2["[Step 2] 인물 바이블 에디터"]
+        W3["[Step 3] 세계관 규칙 에디터"]
+        W4["[Step 4] 4막 6아크 배분기"]
+        W5["[Step 5] 씬 비트 & 챕터 보드"]
+        W6["[목록 & DB] 복선 추적기"]
+        W7["[챕터 보드] 실시간 집필 뷰어"]
+        W8["[AI 코치] 관제탑 스튜디오"]
+        W9["[옵시디언] 1-Click ZIP 다운로드"]
+    end
+
+    S1 ==> W1
+    S2 ==> W2
+    S3 ==> W3
+    S4 ==> W4
+    S5 ==> W5
+    S6 ==> W6
+    S7 ==> W7
+    S8 ==> W8
+    S9 ==> W9
+        </div>
       </div>
 
       <h3 class="text-sm font-bold text-slate-800 mb-2">1.2 11단계 공학적 웹소설 집필 파이프라인</h3>
