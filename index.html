@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebNovel-Studio — 웹소설 창작 & 제작 플랫폼</title>
+    <meta name="description" content="100화 완결 4막·6아크·24챕터 공학적 플롯과 실시간 대시보드, 복선/미결 추적, AI 페어 라이팅 코치가 통합된 전문 웹소설 창작 플랫폼 WebNovel-Studio" />
+    <meta property="og:title" content="WebNovel-Studio — 웹소설 창작 & 제작 플랫폼" />
+    <meta property="og:description" content="100화 완결 4막·6아크·24챕터 공학적 플롯과 실시간 대시보드, 복선/미결 추적, AI 페어 라이팅 코치가 통합된 전문 웹소설 창작 플랫폼 WebNovel-Studio" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // 클라우드 프리뷰 컨테이너 내 Vite WebSocket HMR 에러 및 화면 오버레이 억제
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+        if (msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('[vite]')) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        var msg = (event.message || '') + (event.error ? (' ' + (event.error.message || '')) : '');
+        if (msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('[vite]')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+      if (typeof customElements !== 'undefined') {
+        var originalDefine = customElements.define.bind(customElements);
+        customElements.define = function(name, constructor, options) {
+          if (name === 'vite-error-overlay') {
+            class SilentOverlay extends HTMLElement {}
+            return originalDefine(name, SilentOverlay, options);
+          }
+          return originalDefine(name, constructor, options);
+        };
+      }
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-800 antialiased font-sans selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
