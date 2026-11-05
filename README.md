@@ -17,14 +17,12 @@ Node.js와 npm이 설치된 환경에서 다음 명령을 실행합니다. 의�
 
 ```sh
 npm ci
-npm run dev
-```
-
-기본 접속 주소는 `http://localhost:3000`입니다. 포트와 호스트는 `PORT`·`HOST` 환경변수 또는 다음 실행 인자로 변경할 수 있습니다.
-
-```sh
 npm run dev -- --port 8787 --host 127.0.0.1
 ```
+
+이 문서의 기본 접속 주소는 [http://localhost:8787](http://localhost:8787)입니다. 위 명령은 현재 WebNovel-Studio가 실행 중인 8787 포트를 명시합니다. 현재 환경의 `http://localhost:3000/dashboard`는 LTX Nomad Studio로 연결됩니다.
+
+포트와 호스트는 `PORT`·`HOST` 환경변수 또는 `--port`·`--host` 실행 인자로 변경할 수 있습니다. 포트를 지정하지 않은 서버 코드의 기본값은 3000이므로, 현재 환경에서는 위 실행 명령을 사용합니다.
 
 AI 기능은 앱의 **설정 → AI API 키**에서 제공자와 키를 지정합니다. Gemini는 `.env.example`을 `.env`로 복사한 뒤 `GEMINI_API_KEY`를 설정하는 방식도 지원합니다. 원고 편집과 백업은 AI 키 없이 사용할 수 있습니다.
 
