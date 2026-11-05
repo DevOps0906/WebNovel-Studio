@@ -22,7 +22,9 @@ import {
   Plus,
   X,
   Heart,
-  Globe
+  Globe,
+  Upload,
+  Edit3
 } from 'lucide-react';
 import {
   WebNovelProject,
@@ -647,6 +649,16 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>(['#지분전쟁', '#가짜혈통', '#사이다복수']);
   const [customKeywordInput, setCustomKeywordInput] = useState<string>('');
 
+  // 2.5 Step 1: 스토리라인 기본 소스 3대 탭 (직접입력, 파일업로드, URL링크)
+  const [storySourceTab, setStorySourceTab] = useState<'text' | 'upload' | 'url'>('text');
+  const [rawStoryText, setRawStoryText] = useState<string>('');
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+  const [uploadedFileContent, setUploadedFileContent] = useState<string>('');
+  const [referenceUrl, setReferenceUrl] = useState<string>('');
+
+  // 2.6 Step 1: 3번 카드뷰 생성 여부 (초기에는 비어있음, AI 추천 후 채워짐)
+  const [hasGeneratedProposals, setHasGeneratedProposals] = useState<boolean>(false);
+
   // 3. Step 1: AI Proposal Tabs (3 Tabs for that Genre)
   const [activeStep1ProposalIndex, setActiveStep1ProposalIndex] = useState<number>(0);
   const [isAiProposalOpen, setIsAiProposalOpen] = useState<boolean>(true);
@@ -725,6 +737,32 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [isCard3Generating, setIsCard3Generating] = useState<boolean>(false);
 
+  const getActiveLlmDisplay = () => {
+    try {
+      const saved = localStorage.getItem('webnovel_ai_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const prov = parsed.activeProvider || 'gemini';
+        const model = parsed[prov]?.model || '3.8 Flash';
+        return `${prov.toUpperCase()} · ${model.split('-')[0]}`;
+      }
+    } catch {}
+    return 'GEMINI · 3.8 Flash';
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setUploadedFileContent(content || '');
+      showToast(`📁 [${file.name}] 파일 내용이 성공적으로 로드되었습니다 (${(content?.length || 0).toLocaleString()}자)`);
+    };
+    reader.readAsText(file);
+  };
+
   const handleRunAiRecommendation = async () => {
     if (isAiGenerating) return;
     setIsAiGenerating(true);
@@ -732,9 +770,14 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
 
     const genreOpt = GENRE_OPTIONS.find((g) => g.key === selectedGenreKey) || GENRE_OPTIONS[0];
     const initialKws = selectedKeywords.length > 0 ? selectedKeywords : genreOpt.keywords.slice(0, 3);
-    if (selectedKeywords.length === 0) {
-      setSelectedKeywords(initialKws);
-    }
+
+    // Source context from 3 tabs
+    const sourceContext = storySourceTab === 'text'
+      ? rawStoryText.trim()
+      : storySourceTab === 'upload'
+        ? uploadedFileContent.trim()
+        : '';
+    const sourceUrl = storySourceTab === 'url' ? referenceUrl.trim() : '';
 
     // Stepwise smooth progress interval
     const intervalId = setInterval(() => {
@@ -745,7 +788,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     }, 120);
 
     const controller = new AbortController();
-    const abortTimeout = setTimeout(() => controller.abort(), 3500);
+    const abortTimeout = setTimeout(() => controller.abort(), 4000);
 
     try {
       const res = await fetch('/api/ai/generate-proposals', {
@@ -754,7 +797,9 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
         body: JSON.stringify({
           genreKey: selectedGenreKey,
           genreLabel: genreOpt.label,
-          keywords: initialKws
+          keywords: initialKws,
+          sourceContext,
+          sourceUrl
         }),
         signal: controller.signal
       });
@@ -764,20 +809,29 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
 
       if (res.ok) {
         const data = await res.json();
+        
+        // 2번 카드뷰 키워드 자동 등록
+        if (Array.isArray(data.keywords) && data.keywords.length > 0) {
+          setSelectedKeywords(data.keywords);
+        } else if (selectedKeywords.length === 0) {
+          setSelectedKeywords(initialKws);
+        }
+
         if (data.success && Array.isArray(data.proposals) && data.proposals.length > 0) {
           setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: data.proposals }));
           const chosen = data.proposals[0];
           setActiveStep1ProposalIndex(0);
-          applyProposal(chosen, initialKws);
+          applyProposal(chosen, data.keywords || initialKws);
+          setHasGeneratedProposals(true);
 
           setProgressPercent(100);
-          await new Promise((r) => setTimeout(r, 250));
+          await new Promise((r) => setTimeout(r, 200));
           setIsAiGenerating(false);
           setProgressPercent(0);
           showToast(
             data.isRealAi
-              ? `✨ [Gemini AI 실시간 생성] 장르 [${genreOpt.label.split('(')[0].trim()}] 및 키워드 기반 신규 기획서 3종이 생성되었습니다!`
-              : `✨ [AI 엔진 생성] 장르 [${genreOpt.label.split('(')[0].trim()}] 맞춤 신규 기획서 3종이 생성되었습니다!`
+              ? `✨ [Gemini AI 분석 완료] 입력 소스 및 장르 기반 추천 키워드가 2번에 등록되고, 3번 카드뷰에 3가지 스토리라인이 생성되었습니다!`
+              : `✨ [AI 엔진 분석 완료] 장르 맞춤 키워드가 2번에 등록되고, 3번 카드뷰에 3가지 스토리라인이 생성되었습니다!`
           );
           return;
         }
@@ -791,14 +845,19 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
 
     // Reliable fallback path: guarantees completion without ever getting stuck
     const proposals = GENRE_PROPOSALS[selectedGenreKey] || GENRE_PROPOSALS.chaebol;
-    if (proposals && proposals[activeStep1ProposalIndex]) {
-      applyProposal(proposals[activeStep1ProposalIndex]);
+    setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: proposals }));
+    if (selectedKeywords.length === 0) {
+      setSelectedKeywords(genreOpt.keywords.slice(0, 4));
+    }
+    setHasGeneratedProposals(true);
+    if (proposals && proposals[0]) {
+      applyProposal(proposals[0]);
     }
     setProgressPercent(100);
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 200));
     setIsAiGenerating(false);
     setProgressPercent(0);
-    showToast(`✨ [${genreOpt.label.split('(')[0].trim()}] 맞춤 키워드 및 기획안 3종 생성이 완료되었습니다.`);
+    showToast(`✨ [${genreOpt.label.split('(')[0].trim()}] 소스 분석 완료: 2번 카드에 키워드가 등록되고 3번에 3가지 스토리라인이 생성되었습니다.`);
   };
 
   // When Genre changes in Step 1:
@@ -939,8 +998,15 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     setIsAiProposalOpen(true);
 
     const genreOpt = GENRE_OPTIONS.find((g) => g.key === selectedGenreKey) || GENRE_OPTIONS[0];
+    const sourceContext = storySourceTab === 'text'
+      ? rawStoryText.trim()
+      : storySourceTab === 'upload'
+        ? uploadedFileContent.trim()
+        : '';
+    const sourceUrl = storySourceTab === 'url' ? referenceUrl.trim() : '';
+
     const controller = new AbortController();
-    const abortTimeout = setTimeout(() => controller.abort(), 3500);
+    const abortTimeout = setTimeout(() => controller.abort(), 4000);
 
     try {
       const res = await fetch('/api/ai/generate-proposals', {
@@ -949,7 +1015,9 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
         body: JSON.stringify({
           genreKey: selectedGenreKey,
           genreLabel: genreOpt.label,
-          keywords: selectedKeywords
+          keywords: selectedKeywords,
+          sourceContext,
+          sourceUrl
         }),
         signal: controller.signal
       });
@@ -960,9 +1028,11 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
         const data = await res.json();
         if (data.success && Array.isArray(data.proposals) && data.proposals.length > 0) {
           setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: data.proposals }));
-          const p = data.proposals[activeStep1ProposalIndex] || data.proposals[0];
+          setHasGeneratedProposals(true);
+          const p = data.proposals[0];
+          setActiveStep1ProposalIndex(0);
           applyProposal(p, selectedKeywords);
-          showToast(`✨ 선택 키워드 [${selectedKeywords.join(', ')}] 기반으로 AI 기획안 3종이 실시간 갱신되었습니다!`);
+          showToast(`✨ 선택 키워드 [${selectedKeywords.join(', ')}] 기반으로 3가지 스토리라인이 3번 카드뷰에 생성되었습니다!`);
           return;
         }
       }
@@ -974,9 +1044,13 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     }
 
     // Fallback if error or timeout
-    const p = currentProposals[activeStep1ProposalIndex] || currentProposals[0];
+    const proposals = GENRE_PROPOSALS[selectedGenreKey] || GENRE_PROPOSALS.chaebol;
+    setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: proposals }));
+    setHasGeneratedProposals(true);
+    const p = proposals[0];
+    setActiveStep1ProposalIndex(0);
     applyProposal(p, selectedKeywords);
-    showToast(`✨ 선택한 키워드 [${selectedKeywords.join(', ')}] 기반으로 기획안 3종이 갱신되었습니다!`);
+    showToast(`✨ 선택한 키워드 [${selectedKeywords.join(', ')}] 기반으로 3가지 스토리라인이 생성되었습니다!`);
   };
 
   // Final Submission
@@ -1180,22 +1254,23 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
           {currentStep === 1 && (
             <div className="space-y-6 animate-in fade-in duration-150">
               
-              {/* SECTION A (1번 카드): 장르 선택 */}
-              <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+              {/* SECTION A (1번 카드): 장르 선택 및 3대 스토리라인 소스 탭 */}
+              <div className="space-y-4 bg-slate-50 p-5 sm:p-6 rounded-2xl border border-slate-200">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-extrabold flex items-center justify-center">
                       1
                     </span>
                     <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
-                      웹소설 메인 장르 선택 (필수 선행 단계)
+                      웹소설 메인 장르 선택 & 기본 스토리라인 소스 제공
                     </h3>
                   </div>
-                  <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
-                    장르를 먼저 선택해야 맞춤 키워드와 기획서 항목이 AI로 추천됩니다.
+                  <span className="text-xs text-blue-700 font-bold bg-blue-100/70 px-2.5 py-1 rounded-lg border border-blue-200">
+                    ※ 장르 부제는 장르 성격을 돕기 위한 참고용 예시이며 절대적인 스토리라인이 아닙니다.
                   </span>
                 </div>
 
+                {/* 1.1 장르 선택 카드 그리드 */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
                   {GENRE_OPTIONS.map((genreOpt) => {
                     const isSelected = selectedGenreKey === genreOpt.key;
@@ -1222,13 +1297,138 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                               <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 ml-1" />
                             )}
                           </div>
-                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-1 leading-relaxed">
+                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-1 leading-relaxed" title="참고용 예시 부제">
                             {genreOpt.sublabel}
                           </p>
                         </div>
                       </div>
                     );
                   })}
+                </div>
+
+                {/* 1.2 선택된 장르의 기본 스토리라인 소스 입력 3대 탭 */}
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-3.5 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      <h4 className="font-extrabold text-xs sm:text-sm text-slate-900">
+                        선택된 장르 [{activeGenreOption.label.split('(')[0].trim()}] 기본 스토리라인 소스 제공 (3대 탭)
+                      </h4>
+                    </div>
+                    <span className="text-[11px] text-slate-500">
+                      입력된 소스를 바탕으로 선택된 AI가 분석하여 키워드 및 스토리라인을 추천합니다.
+                    </span>
+                  </div>
+
+                  {/* 3대 탭 전환 헤더 */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setStorySourceTab('text')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                        storySourceTab === 'text'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>직접 텍스트 입력</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStorySourceTab('upload')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                        storySourceTab === 'upload'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>파일 업로드 (.txt, .md)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStorySourceTab('url')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                        storySourceTab === 'url'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>URL 링크 입력</span>
+                    </button>
+                  </div>
+
+                  {/* 탭 1: 직접 텍스트 입력 */}
+                  {storySourceTab === 'text' && (
+                    <div className="space-y-1.5 animate-in fade-in duration-100">
+                      <textarea
+                        value={rawStoryText}
+                        onChange={(e) => setRawStoryText(e.target.value)}
+                        placeholder="작가님이 구상하신 기본 스토리라인, 세계관 메모, 주인공 설정, 줄거리 아이디어를 자유롭게 입력하세요. (예: 대기업 비자금을 관리하던 주인공이 IMF 직전으로 회귀하여 가문을 상대로 적대적 M&A를 펼치는 복수극...)"
+                        rows={4}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white resize-y leading-relaxed"
+                      />
+                      <div className="flex justify-between text-[11px] text-slate-400">
+                        <span>* 입력된 내용을 바탕으로 AI가 핵심 갈등과 키워드를 분석합니다.</span>
+                        <span>{rawStoryText.length.toLocaleString()} 자</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 탭 2: 파일 업로드 */}
+                  {storySourceTab === 'upload' && (
+                    <div className="space-y-2 animate-in fade-in duration-100">
+                      <div className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-5 text-center bg-slate-50 hover:bg-blue-50/20 transition-all relative">
+                        <input
+                          type="file"
+                          accept=".txt,.md,.doc,.docx"
+                          onChange={handleFileUpload}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        />
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                            <Upload className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs sm:text-sm font-bold text-slate-800">
+                              {uploadedFileName ? `선택된 파일: ${uploadedFileName}` : '기본 스토리라인 / 시놉시스 파일 업로드'}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              .txt, .md 형식의 소설 기획서, 메모 텍스트 파일을 드래그하거나 클릭하여 업로드하세요.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {uploadedFileContent && (
+                        <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-xs text-slate-700 font-mono max-h-24 overflow-y-auto">
+                          <span className="font-bold text-blue-700 block mb-1">파일 내용 미리보기:</span>
+                          {uploadedFileContent.slice(0, 300)}...
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 탭 3: URL 링크 */}
+                  {storySourceTab === 'url' && (
+                    <div className="space-y-1.5 animate-in fade-in duration-100">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="url"
+                          value={referenceUrl}
+                          onChange={(e) => setReferenceUrl(e.target.value)}
+                          placeholder="참고할 웹소설, 나무위키, 기사 링크 URL (예: https://...)"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white"
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        * 참고하고 싶은 스토리 소재, 레퍼런스 웹페이지의 링크를 입력해 주시면 AI가 컨텍스트로 참조합니다.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1248,7 +1448,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                        우측 [AI로 추천하기] 버튼을 누르면 장르 맞춤 키워드와 3가지 기획안이 생성됩니다.
+                        버튼을 누르면 선택된 LLM이 소스를 분석하여 2번에 키워드를 자동 등록하고 3번에 3가지 스토리라인을 추천합니다.
                       </p>
                     </div>
                   </div>
@@ -1256,7 +1456,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                   {/* Right: AI로 추천하기 Button or Same-Height Progress Bar (h-11 for both) */}
                   <div className="sm:shrink-0 w-full sm:w-auto flex items-center justify-end">
                     {isAiGenerating ? (
-                      <div className="w-full sm:w-64 h-11 rounded-xl bg-slate-200/90 border border-slate-300 overflow-hidden relative flex items-center justify-center shadow-inner">
+                      <div className="w-full sm:w-80 h-11 rounded-xl bg-slate-200/90 border border-slate-300 overflow-hidden relative flex items-center justify-center shadow-inner">
                         {/* Progress fill */}
                         <div
                           className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 transition-all duration-150 ease-out"
@@ -1265,7 +1465,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                         {/* Progress label */}
                         <span className="relative z-10 text-xs font-bold text-white drop-shadow flex items-center gap-1.5 px-3">
                           <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-300" />
-                          <span>AI 추천 분석 및 생성 중... {progressPercent}%</span>
+                          <span>{getActiveLlmDisplay()} 분석 및 생성 중... {progressPercent}%</span>
                         </span>
                       </div>
                     ) : (
@@ -1275,7 +1475,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                         className="w-full sm:w-auto h-11 px-5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-extrabold shadow-md shadow-blue-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
                       >
                         <Sparkles className="w-4 h-4 text-amber-300" />
-                        <span>AI로 추천하기</span>
+                        <span>AI 추천하기 (선택된 LLM: {getActiveLlmDisplay()} 분석)</span>
                       </button>
                     )}
                   </div>
@@ -1291,20 +1491,40 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                     </span>
                     <div>
                       <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                        <span>[{activeGenreOption.label.split('(')[0].trim()}] 어울림 키워드 AI 추천 & 키워드 입력</span>
+                        <span>[{activeGenreOption.label.split('(')[0].trim()}] 추천 키워드 자동 등록 & 키워드 추가</span>
                       </h4>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        추천된 키워드를 클릭하여 선택하거나, 원하는 키워드를 직접 입력하여 제목과 기획안에 반영할 수 있습니다.
+                        AI가 소스를 분석해 추천 키워드를 자동 등록해 드립니다. 직접 키워드를 추가하면 3번 카드뷰에 3개의 스토리라인이 맞춤 추천됩니다.
                       </p>
                     </div>
                   </div>
+
+                  {/* Re-generate Card 3 using current keywords */}
+                  {isCard3Generating ? (
+                    <div className="h-9 px-3.5 rounded-xl bg-slate-200/90 border border-slate-300 overflow-hidden relative flex items-center justify-center shrink-0 min-w-[210px] shadow-inner">
+                      <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 w-full animate-pulse" />
+                      <span className="relative z-10 text-white text-xs font-extrabold flex items-center gap-1.5 drop-shadow">
+                        <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-300" />
+                        <span>키워드로 3번 스토리라인 생성 중...</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiWithKeywords}
+                      className="h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>선택 키워드로 3가지 스토리라인 추천받기</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Recommended Keywords Badges */}
                 <div className="space-y-2 pt-1">
                   <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
                     <Tag className="w-3.5 h-3.5 text-blue-600" />
-                    <span>AI 장르 자동 추천 키워드 (클릭하여 선택/해제):</span>
+                    <span>AI 추천 키워드 (클릭하여 선택/해제):</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {activeGenreOption.keywords.map((kw) => {
@@ -1378,7 +1598,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                 )}
               </div>
 
-              {/* SECTION C: AI 추천 버튼 & 3가지 추천 탭 (장르별 3개 카드뷰) */}
+              {/* SECTION C (3번 카드): 키워드 기반 3가지 스토리라인 추천 탭 */}
               <div className="space-y-3 bg-white p-5 rounded-2xl border-2 border-blue-500 shadow-md">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -1387,109 +1607,119 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                     </span>
                     <div>
                       <h4 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-                        <span>선택한 장르 맞춤 AI 기획서 3가지 추천안</span>
+                        <span>키워드 기반 맞춤 스토리라인 3가지 추천안 (3개 탭)</span>
                         <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-600 text-white">
                           3개 탭 카드뷰
                         </span>
                       </h4>
                       <p className="text-xs text-slate-600 mt-0.5">
-                        원하는 탭(카드뷰)을 선택하면 아래의 제목, 부제, 로그라인, 셀링포인트가 자동으로 채워집니다.
+                        {hasGeneratedProposals
+                          ? '원하는 탭(카드뷰)을 선택하면 기획서 상세 항목(제목, 부제, 로그라인, 셀링포인트 등)에 그 내용들이 자동으로 추가·반영됩니다.'
+                          : '1번에서 AI 추천하기를 누르거나 2번에서 키워드를 설정하면 이곳에 3가지 스토리라인이 채워집니다.'}
                       </p>
                     </div>
                   </div>
+                </div>
 
-                  {isCard3Generating ? (
-                    <div className="h-10 px-4 rounded-xl bg-slate-200/90 border border-slate-300 overflow-hidden relative flex items-center justify-center shrink-0 min-w-[210px] shadow-inner">
-                      <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 w-full animate-pulse" />
-                      <span className="relative z-10 text-white text-xs font-extrabold flex items-center gap-1.5 drop-shadow">
-                        <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-300" />
-                        <span>선택 키워드로 AI 갱신 중...</span>
-                      </span>
+                {/* 3번 카드의 초기 상태 (비어있음) vs 생성 후 3개 탭 렌더링 */}
+                {!hasGeneratedProposals ? (
+                  <div className="p-8 sm:p-12 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+                      <Sparkles className="w-6 h-6 text-blue-600" />
                     </div>
-                  ) : (
+                    <div className="space-y-1 max-w-md mx-auto">
+                      <h5 className="font-extrabold text-sm sm:text-base text-slate-800">
+                        3가지 탭의 추천 스토리라인이 아직 생성되지 않았습니다
+                      </h5>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        1번 카드에서 스토리라인 소스(텍스트 / 파일 / URL)를 입력하고 <strong className="text-blue-600">[AI 추천하기]</strong>를 실행하거나, 2번 카드에서 키워드를 설정하여 3가지 스토리라인을 추천받으세요.
+                      </p>
+                    </div>
                     <button
                       type="button"
-                      onClick={handleGenerateAiWithKeywords}
-                      className="h-10 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      onClick={handleRunAiRecommendation}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold shadow-sm inline-flex items-center gap-1.5 cursor-pointer transition-all"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
-                      <span>선택 키워드로 AI 기획서 갱신</span>
+                      <span>지금 AI 추천 스토리라인 생성하기</span>
                     </button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* 3 Tabs Header */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-slate-200 pb-2 pt-1">
+                      {currentProposals.map((proposal, idx) => {
+                        const isSelected = activeStep1ProposalIndex === idx;
+                        return (
+                          <button
+                            key={proposal.id}
+                            type="button"
+                            onClick={() => handleSelectProposalTab(idx)}
+                            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                            <span>{proposal.tabLabel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                {/* 3 Tabs Header */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-slate-200 pb-2 pt-1">
-                  {currentProposals.map((proposal, idx) => {
-                    const isSelected = activeStep1ProposalIndex === idx;
-                    return (
-                      <button
-                        key={proposal.id}
-                        type="button"
-                        onClick={() => handleSelectProposalTab(idx)}
-                        className={`py-2.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                          isSelected
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                        <span>{proposal.tabLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                    {/* 3 Proposal Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+                      {currentProposals.map((proposal, idx) => {
+                        const isSelected = activeStep1ProposalIndex === idx;
+                        return (
+                          <div
+                            key={proposal.id}
+                            onClick={() => handleSelectProposalTab(idx)}
+                            className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
+                              isSelected
+                                ? 'bg-blue-50/90 border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                                : 'bg-slate-50 border-slate-200 hover:border-blue-300 hover:bg-white'
+                            }`}
+                          >
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                  isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                                }`}>
+                                  {proposal.badge}
+                                </span>
+                                {isSelected && (
+                                  <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>기획서 반영됨</span>
+                                  </span>
+                                )}
+                              </div>
 
-                {/* 3 Proposal Cards Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
-                  {currentProposals.map((proposal, idx) => {
-                    const isSelected = activeStep1ProposalIndex === idx;
-                    return (
-                      <div
-                        key={proposal.id}
-                        onClick={() => handleSelectProposalTab(idx)}
-                        className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
-                          isSelected
-                            ? 'bg-blue-50/90 border-blue-600 ring-2 ring-blue-500/20 shadow-md'
-                            : 'bg-slate-50 border-slate-200 hover:border-blue-300 hover:bg-white'
-                        }`}
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                              isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
-                            }`}>
-                              {proposal.badge}
-                            </span>
-                            {isSelected && (
-                              <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
-                                <Check className="w-3.5 h-3.5" />
-                                <span>선택됨</span>
+                              <div className="font-extrabold text-sm text-slate-900 leading-snug">
+                                {proposal.title}
+                              </div>
+                              <div className="text-xs text-blue-700 font-semibold">
+                                {proposal.subtitle}
+                              </div>
+                              <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
+                                {proposal.logline}
+                              </p>
+                            </div>
+
+                            <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                              <span className="text-slate-500 font-mono text-[11px]">필명: {proposal.penName}</span>
+                              <span className={`font-bold ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
+                                {isSelected ? '상세항목 추가 완료' : '이 탭 선택하여 상세항목 추가 →'}
                               </span>
-                            )}
+                            </div>
                           </div>
-
-                          <div className="font-extrabold text-sm text-slate-900 leading-snug">
-                            {proposal.title}
-                          </div>
-                          <div className="text-xs text-blue-700 font-semibold">
-                            {proposal.subtitle}
-                          </div>
-                          <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
-                            {proposal.logline}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
-                          <span className="text-slate-500 font-mono text-[11px]">필명: {proposal.penName}</span>
-                          <span className={`font-bold ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
-                            {isSelected ? '내용 반영 완료' : '이 기획안 적용하기 →'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* SECTION D: 기획서 상세 항목 (직접 편집 가능) */}

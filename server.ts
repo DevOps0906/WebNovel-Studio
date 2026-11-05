@@ -410,51 +410,56 @@ ${sceneText.slice(0, 3000)}
 // API: AI 3 Web Novel Proposals Generator (Gemini Integration)
 app.post('/api/ai/generate-proposals', async (req, res) => {
   try {
-    const { genreKey, genreLabel, keywords = [], customPrompt, apiKey } = req.body;
+    const { genreKey, genreLabel, keywords = [], customPrompt, sourceContext, sourceUrl, apiKey } = req.body;
     const gemini = getGeminiClient(apiKey);
 
     if (gemini) {
       try {
         const prompt = `당신은 대한민국 최고의 웹소설 기획자이자 웹소설 제작사 총괄 CP입니다.
-다음 조건에 부합하는 완전히 참신하고 매력적인 웹소설 100화 완결 기획안 3개를 생성해 주세요.
+다음 조건 및 작가가 제공한 스토리라인 소스를 심층 분석하여 부합하는 완전히 참신하고 매력적인 웹소설 100화 완결 기획안 3개와 추천 핵심 키워드 6~8개를 생성해 주세요.
 
 [요청 조건]
 - 선택 장르: ${genreLabel || genreKey}
-- 작가가 선택 및 입력한 핵심 키워드: ${keywords.join(', ') || '사이다, 반전, 인기 키워드'}
+- 작가가 업로드/입력한 기본 스토리라인 소스: ${sourceContext ? `"""\n${sourceContext.slice(0, 3000)}\n"""` : '없음 (장르 트렌드 기반 창작)'}
+${sourceUrl ? `- 작가가 제공한 참고 URL: ${sourceUrl}` : ''}
+- 작가가 선택 및 입력한 핵심 키워드: ${keywords.join(', ') || '사이다, 반전, 인기 트렌드'}
 ${customPrompt ? `- 작가 특별 요청: ${customPrompt}` : ''}
 
 반드시 유효한 JSON 형식으로만 응답해야 합니다. 마크다운 따옴표(\`\`\`json) 없이 순수 JSON만 출력하세요.
-최상위는 3개의 항목을 가진 배열이어야 합니다:
-[
-  {
-    "id": "prop-1",
-    "tabLabel": "추천 1: [핵심 훅 및 스타일 요약]",
-    "badge": "대표 태그 (예: 사이다 복수, 성좌 계약 등)",
-    "title": "트렌디한 웹소설 메인 제목",
-    "subtitle": "핵심 훅을 담은 부제",
-    "penName": "어울리는 작가 필명",
-    "genreBreakdown": "${genreLabel || '현대판타지'} (예: 장르 50% · 서브장르 30% · 심리전 20%)",
-    "targetEpisodes": 100,
-    "background": "구체적인 세계관 공간 및 시대 배경",
-    "scale": "100화 완결 (4막 6아크 24챕터)",
-    "pov": "1인칭 주인공 시점 ('나')",
-    "target": "타깃 독자층",
-    "serialization": "연재 주기 및 추천 플랫폼",
-    "logline": "1~2문장의 흡인력 있는 메인 로그라인 (주인공의 결핍, 치트, 위기, 목표)",
-    "sellingPoint": "독자에게 선사할 사이다 카타르시스 및 특별한 차별화 요소",
-    "worldThesis": "세계관의 핵심 갈등 테제 및 전제",
-    "specialRules": "시스템 제약, 계약 규칙, 또는 사회적 리스크 조건",
-    "protagonistName": "주인공 이름 및 신분",
-    "protagonistRole": "주인공 역할",
-    "protagonistLack": "주인공의 근원적 결핍/트라우마",
-    "protagonistCheat": "주인공의 독점적 치트 능력",
-    "protagonistQuote": "주인공의 성격을 보여주는 시그니처 대사",
-    "companionName": "핵심 조력자 이름 및 시너지",
-    "antagonistName": "메인 빌런 이름 및 악행 동기",
-    "rivalName": "라이벌/복병 이름 및 갈등 요소",
-    "personaId": "sankyeong"
-  }
-]`;
+최상위는 "proposals"와 "keywords" 키를 가진 객체이거나, 3개의 항목을 가진 proposals 배열이어야 합니다:
+{
+  "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6"],
+  "proposals": [
+    {
+      "id": "prop-1",
+      "tabLabel": "추천 1: [핵심 훅 및 스타일 요약]",
+      "badge": "대표 태그 (예: 사이다 복수, 성좌 계약 등)",
+      "title": "트렌디한 웹소설 메인 제목",
+      "subtitle": "핵심 훅을 담은 부제",
+      "penName": "어울리는 작가 필명",
+      "genreBreakdown": "${genreLabel || '현대판타지'} (예: 장르 50% · 서브장르 30% · 심리전 20%)",
+      "targetEpisodes": 100,
+      "background": "구체적인 세계관 공간 및 시대 배경",
+      "scale": "100화 완결 (4막 6아크 24챕터)",
+      "pov": "1인칭 주인공 시점 ('나')",
+      "target": "타깃 독자층",
+      "serialization": "연재 주기 및 추천 플랫폼",
+      "logline": "1~2문장의 흡인력 있는 메인 로그라인 (주인공의 결핍, 치트, 위기, 목표)",
+      "sellingPoint": "독자에게 선사할 사이다 카타르시스 및 특별한 차별화 요소",
+      "worldThesis": "세계관의 핵심 갈등 테제 및 전제",
+      "specialRules": "시스템 제약, 계약 규칙, 또는 사회적 리스크 조건",
+      "protagonistName": "주인공 이름 및 신분",
+      "protagonistRole": "주인공 역할",
+      "protagonistLack": "주인공의 근원적 결핍/트라우마",
+      "protagonistCheat": "주인공의 독점적 치트 능력",
+      "protagonistQuote": "주인공의 성격을 보여주는 시그니처 대사",
+      "companionName": "핵심 조력자 이름 및 시너지",
+      "antagonistName": "메인 빌런 이름 및 악행 동기",
+      "rivalName": "라이벌/복병 이름 및 갈등 요소",
+      "personaId": "sankyeong"
+    }
+  ]
+}`;
 
         const response = await withTimeout(
           gemini.models.generateContent({
@@ -473,11 +478,15 @@ ${customPrompt ? `- 작가 특별 요청: ${customPrompt}` : ''}
             cleanText = cleanText.replace(/^```\s*/, '').replace(/\s*```$/, '');
           }
           const parsed = JSON.parse(cleanText);
-          if (Array.isArray(parsed) && parsed.length >= 3) {
+          let extractedProposals = Array.isArray(parsed) ? parsed : (parsed.proposals || []);
+          let extractedKeywords = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+
+          if (Array.isArray(extractedProposals) && extractedProposals.length >= 3) {
             return res.json({
               success: true,
               isRealAi: true,
-              proposals: parsed.slice(0, 3)
+              proposals: extractedProposals.slice(0, 3),
+              keywords: extractedKeywords
             });
           }
         }
