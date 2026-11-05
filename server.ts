@@ -426,9 +426,10 @@ ${sourceUrl ? `- 작가가 제공한 참고 URL: ${sourceUrl}` : ''}
 ${customPrompt ? `- 작가 특별 요청: ${customPrompt}` : ''}
 
 반드시 유효한 JSON 형식으로만 응답해야 합니다. 마크다운 따옴표(\`\`\`json) 없이 순수 JSON만 출력하세요.
-최상위는 "proposals"와 "keywords" 키를 가진 객체이거나, 3개의 항목을 가진 proposals 배열이어야 합니다:
+최상위는 "proposals", "keywords", "storySummary" 키를 가진 객체여야 합니다:
 {
   "keywords": ["#키워드1", "#키워드2", "#키워드3", "#키워드4", "#키워드5", "#키워드6"],
+  "storySummary": "작가의 소스와 키워드를 종합 분석한 3~4문장의 흡인력 있는 기본 스토리라인 핵심 요약문",
   "proposals": [
     {
       "id": "prop-1",
@@ -481,12 +482,17 @@ ${customPrompt ? `- 작가 특별 요청: ${customPrompt}` : ''}
           let extractedProposals = Array.isArray(parsed) ? parsed : (parsed.proposals || []);
           let extractedKeywords = Array.isArray(parsed.keywords) ? parsed.keywords : [];
 
+          let extractedStorySummary = typeof parsed.storySummary === 'string' && parsed.storySummary.trim().length > 0
+            ? parsed.storySummary.trim()
+            : (extractedProposals[0]?.logline || '장르와 키워드를 융합한 핵심 스토리라인 요약');
+
           if (Array.isArray(extractedProposals) && extractedProposals.length >= 3) {
             return res.json({
               success: true,
               isRealAi: true,
               proposals: extractedProposals.slice(0, 3),
-              keywords: extractedKeywords
+              keywords: extractedKeywords,
+              storySummary: extractedStorySummary
             });
           }
         }
@@ -591,7 +597,11 @@ ${customPrompt ? `- 작가 특별 요청: ${customPrompt}` : ''}
     res.json({
       success: true,
       isRealAi: false,
-      proposals: dynamicProposals
+      proposals: dynamicProposals,
+      keywords: keywords.length > 0 ? keywords : [`#${firstKw}`, `#${secondKw}`, `#${thirdKw}`, '#사이다', '#인기웹소설'],
+      storySummary: sourceContext && sourceContext.trim().length > 0
+        ? `[작가 제공 소스 반영] ${sourceContext.slice(0, 160)}...`
+        : `[${genreLabel || '웹소설'}] ${firstKw}와(과) ${secondKw}의 이능/비밀을 각성한 주인공이 억압적인 세력에 맞서 100화에 걸쳐 ${thirdKw}의 완벽한 승리를 쟁취하는 사이다 스토리라인.`
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });

@@ -24,7 +24,8 @@ import {
   Heart,
   Globe,
   Upload,
-  Edit3
+  Edit3,
+  Sliders
 } from 'lucide-react';
 import {
   WebNovelProject,
@@ -656,8 +657,13 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
   const [uploadedFileContent, setUploadedFileContent] = useState<string>('');
   const [referenceUrl, setReferenceUrl] = useState<string>('');
 
-  // 2.6 Step 1: 3번 카드뷰 생성 여부 (초기에는 비어있음, AI 추천 후 채워짐)
+  // 2.6 Step 1: AI 추천 생성 여부 (추천 전: 기본 템플릿 3개 탭 / 추천 후: 키워드 맞춤 추천 3개 탭)
   const [hasGeneratedProposals, setHasGeneratedProposals] = useState<boolean>(false);
+
+  // 2.7 Step 1: 2번 카드뷰 하단 div에 표시될 기본 스토리라인 요약 (AI 분석 및 장르 연계)
+  const [storySummary, setStorySummary] = useState<string>(
+    '재벌 가문의 억울한 희생양이었던 주인공이 10년 전으로 회귀하여, 미래 금융 지식과 지분 선점으로 적들을 하나씩 도산시키는 통쾌한 복수극.'
+  );
 
   // 3. Step 1: AI Proposal Tabs (3 Tabs for that Genre)
   const [activeStep1ProposalIndex, setActiveStep1ProposalIndex] = useState<number>(0);
@@ -810,6 +816,13 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
       if (res.ok) {
         const data = await res.json();
         
+        // 2번 카드뷰 하단 스토리라인 요약 자동 반영
+        if (data.storySummary) {
+          setStorySummary(data.storySummary);
+        } else if (sourceContext) {
+          setStorySummary(`[작가 입력 소스 요약] ${sourceContext.slice(0, 180)}...`);
+        }
+
         // 2번 카드뷰 키워드 자동 등록
         if (Array.isArray(data.keywords) && data.keywords.length > 0) {
           setSelectedKeywords(data.keywords);
@@ -830,8 +843,8 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
           setProgressPercent(0);
           showToast(
             data.isRealAi
-              ? `✨ [Gemini AI 분석 완료] 입력 소스 및 장르 기반 추천 키워드가 2번에 등록되고, 3번 카드뷰에 3가지 스토리라인이 생성되었습니다!`
-              : `✨ [AI 엔진 분석 완료] 장르 맞춤 키워드가 2번에 등록되고, 3번 카드뷰에 3가지 스토리라인이 생성되었습니다!`
+              ? `✨ [Gemini AI 분석 완료] 2번 카드에 스토리라인 요약과 키워드가 등록되고, 4번 카드뷰에 맞춤 스토리라인이 생성되었습니다!`
+              : `✨ [AI 엔진 분석 완료] 2번 카드에 스토리라인 요약과 키워드가 등록되고, 4번 카드뷰에 맞춤 스토리라인이 생성되었습니다!`
           );
           return;
         }
@@ -846,6 +859,11 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     // Reliable fallback path: guarantees completion without ever getting stuck
     const proposals = GENRE_PROPOSALS[selectedGenreKey] || GENRE_PROPOSALS.chaebol;
     setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: proposals }));
+    if (sourceContext) {
+      setStorySummary(`[작가 입력 소스 요약] ${sourceContext.slice(0, 180)}...`);
+    } else if (proposals && proposals[0]) {
+      setStorySummary(proposals[0].logline);
+    }
     if (selectedKeywords.length === 0) {
       setSelectedKeywords(genreOpt.keywords.slice(0, 4));
     }
@@ -857,13 +875,17 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     await new Promise((r) => setTimeout(r, 200));
     setIsAiGenerating(false);
     setProgressPercent(0);
-    showToast(`✨ [${genreOpt.label.split('(')[0].trim()}] 소스 분석 완료: 2번 카드에 키워드가 등록되고 3번에 3가지 스토리라인이 생성되었습니다.`);
+    showToast(`✨ [${genreOpt.label.split('(')[0].trim()}] 소스 분석 완료: 2번 카드에 스토리라인 요약 및 키워드가 정해지고 4번에 3가지 맞춤 추천안이 생성되었습니다.`);
   };
 
   // When Genre changes in Step 1:
   const handleSelectGenre = (genreKey: GenreKey) => {
     setSelectedGenreKey(genreKey);
-    // Auto-align persona category for step 5 without shifting layout
+    const initialProps = GENRE_PROPOSALS[genreKey] || GENRE_PROPOSALS.chaebol;
+    if (initialProps && initialProps[0]) {
+      setStorySummary(initialProps[0].logline);
+    }
+    // Auto-align persona category for step 3 without shifting layout
     if (genreKey === 'chaebol') setSelectedPersonaCategory('chaebol');
     else if (genreKey === 'hunter') setSelectedPersonaCategory('hunter');
     else if (genreKey === 'romfantasy') setSelectedPersonaCategory('romfantasy');
@@ -1176,12 +1198,12 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
             <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white flex items-center gap-2.5">
               <span>새로운 웹소설 기획 및 작성</span>
               <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 border border-blue-400/40">
-                장르 선행 AI 위저드
+                4단계 공학적 AI 위저드
               </span>
             </h2>
 
             <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-              <strong>1. 장르 선택</strong> → <strong>2. AI 추천 키워드</strong> → <strong>3. 3가지 맞춤 기획안 탭</strong> 순으로 기획서를 완성하고, 세계관·캐릭터·1~4막(기승전결)을 거쳐 <strong>장르별 작가 페르소나</strong>를 주입합니다.
+              <strong>1. 장르 & 스토리라인 소스</strong> → <strong>2. 키워드 & 줄거리 요약</strong> → <strong>3. 작가 페르소나</strong> → <strong>4. 3가지 맞춤 추천안</strong>을 거쳐 기획서를 완성하고, 세계관·캐릭터 설계 후 4단계에서 100화 완결 플롯을 완성합니다.
             </p>
           </div>
 
@@ -1204,15 +1226,14 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
         </div>
       )}
 
-      {/* 2. Stepper Header */}
+      {/* 2. Stepper Header (4단계) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="grid grid-cols-5 border-b border-slate-200 bg-slate-50 text-xs font-bold text-center">
+        <div className="grid grid-cols-4 border-b border-slate-200 bg-slate-50 text-xs font-bold text-center">
           {[
-            { step: 1, label: '1단계: 기본계획서 & 장르선택' },
-            { step: 2, label: '2단계: 세계관 & 규칙' },
+            { step: 1, label: '1단계: 기획 발상 & 맞춤 스토리라인' },
+            { step: 2, label: '2단계: 세계관 & 규칙 (1단계 연계)' },
             { step: 3, label: '3단계: 캐릭터 바이블' },
-            { step: 4, label: '4단계: 1~4막 스토리구조' },
-            { step: 5, label: '5단계: 장르별 페르소나 & 완료' },
+            { step: 4, label: '4단계: 1~4막 스토리구조 & 최종 완성' },
           ].map((s) => {
             const isCurrent = currentStep === s.step;
             const isDone = currentStep > s.step;
@@ -1596,130 +1617,244 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                     ))}
                   </div>
                 )}
+
+                {/* 2.4 AI 분석 기본 스토리라인 요약 (요청사항: 2번 카드뷰 하단 div) */}
+                <div className="pt-3 border-t border-blue-200/60 space-y-1.5 bg-blue-50/70 p-3.5 rounded-xl border border-blue-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-[11px] font-extrabold text-blue-900 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>기본 스토리라인 핵심 요약 (AI 분석 및 장르 연계)</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-600 text-white font-bold self-start sm:self-auto">
+                      {hasGeneratedProposals ? 'AI 맞춤 요약 완료' : '기본 스토리라인'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                    {storySummary}
+                  </p>
+                </div>
               </div>
 
-              {/* SECTION C (3번 카드): 키워드 기반 3가지 스토리라인 추천 탭 */}
-              <div className="space-y-3 bg-white p-5 rounded-2xl border-2 border-blue-500 shadow-md">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* SECTION C (3번 카드): 장르별 작가 페르소나 카드뷰 분류 & 선택 (5단계에서 이동) */}
+              <div className="space-y-4 bg-slate-50/80 p-5 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-extrabold flex items-center justify-center">
                       3
                     </span>
+                    <h4 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                      <span>장르별 작가 페르소나 카드뷰 분류 & 선택</span>
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
+                        집필 스타일 연계
+                      </span>
+                    </h4>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    선택한 페르소나의 문체와 시그니처 연출이 다음 4번 카드의 스토리라인 추천안에 직접 반영됩니다.
+                  </span>
+                </div>
+
+                {/* Genre Category Filter Tabs for Personas */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
+                      <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                      <span>페르소나 카테고리:</span>
+                    </span>
+                    {PERSONA_CATEGORIES.map((cat) => {
+                      const isCatSelected = selectedPersonaCategory === cat.key;
+                      const isNovelGenreMatch = selectedGenreKey === cat.key;
+                      return (
+                        <button
+                          key={cat.key}
+                          type="button"
+                          onClick={() => setSelectedPersonaCategory(cat.key)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                            isCatSelected
+                              ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-500/20'
+                              : 'bg-white text-slate-700 border border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span>{cat.label}</span>
+                          {isNovelGenreMatch && (
+                            <span className="text-[10px] bg-amber-400 text-slate-900 font-extrabold px-1.5 py-0.2 rounded-full">
+                              현재 장르
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Persona Cards Grid (Filtered) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                  {filteredPersonas.map((persona) => {
+                    const isSelected = selectedPersonaId === persona.id;
+                    const isGenreMatch = persona.category === selectedGenreKey;
+                    return (
+                      <div
+                        key={persona.id}
+                        onClick={() => {
+                          setSelectedPersonaId(persona.id);
+                          showToast(`🖋️ 작가 페르소나가 [${persona.name}] 님으로 설정되었습니다.`);
+                        }}
+                        className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-blue-50/90 border-blue-600 text-slate-900 ring-2 ring-blue-500/30 shadow-md'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
+                              <Feather className={`w-3.5 h-3.5 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
+                              <span>{persona.name}</span>
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {isGenreMatch && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  장르 최적화
+                                </span>
+                              )}
+                              {isSelected ? (
+                                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                              ) : (
+                                <span className="text-[10px] font-mono text-slate-400">{persona.masterpiece}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-[11px] font-mono text-blue-700 font-semibold">
+                            {persona.genre}
+                          </div>
+
+                          <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                            {persona.styleDescription}
+                          </p>
+                        </div>
+
+                        {/* Signature Hook Preview */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-100">
+                          <div className="text-[10px] text-slate-400 font-mono mb-1">대표 시그니처 연출:</div>
+                          <div className="text-[11px] text-slate-800 font-mono italic bg-slate-50 p-2 rounded-lg border border-slate-200 line-clamp-2">
+                            {persona.signatureHook}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION D (4번 카드): 키워드기반 맞춤 스토리라인 3가지 추천 (3개 탭) */}
+              <div className="space-y-3 bg-white p-5 rounded-2xl border-2 border-blue-500 shadow-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-extrabold flex items-center justify-center">
+                      4
+                    </span>
                     <div>
                       <h4 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-                        <span>키워드 기반 맞춤 스토리라인 3가지 추천안 (3개 탭)</span>
-                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-blue-600 text-white">
-                          3개 탭 카드뷰
+                        <span>키워드기반 맞춤 스토리라인 3가지 추천</span>
+                        <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded text-white ${
+                          hasGeneratedProposals ? 'bg-indigo-600' : 'bg-blue-600'
+                        }`}>
+                          {hasGeneratedProposals ? 'AI 키워드 맞춤 추천안 (3개 탭)' : '기본 템플릿 3가지 추천안 (3개 탭)'}
                         </span>
                       </h4>
                       <p className="text-xs text-slate-600 mt-0.5">
                         {hasGeneratedProposals
-                          ? '원하는 탭(카드뷰)을 선택하면 기획서 상세 항목(제목, 부제, 로그라인, 셀링포인트 등)에 그 내용들이 자동으로 추가·반영됩니다.'
-                          : '1번에서 AI 추천하기를 누르거나 2번에서 키워드를 설정하면 이곳에 3가지 스토리라인이 채워집니다.'}
+                          ? 'AI 추론이 완료되어 키워드 및 페르소나에 맞춤화된 3가지 스토리라인입니다. 원하는 탭을 선택하면 기획서 상세 항목에 즉시 추가됩니다.'
+                          : '현재 기본 템플릿 스토리라인 3가지가 제공 중입니다. 1번 카드에서 [AI 추천하기] 버튼을 누르면 AI가 추론을 완료하여 키워드 맞춤 스토리라인 3가지로 교체됩니다.'}
                       </p>
                     </div>
                   </div>
-                </div>
 
-                {/* 3번 카드의 초기 상태 (비어있음) vs 생성 후 3개 탭 렌더링 */}
-                {!hasGeneratedProposals ? (
-                  <div className="p-8 sm:p-12 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 space-y-3">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
-                      <Sparkles className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div className="space-y-1 max-w-md mx-auto">
-                      <h5 className="font-extrabold text-sm sm:text-base text-slate-800">
-                        3가지 탭의 추천 스토리라인이 아직 생성되지 않았습니다
-                      </h5>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        1번 카드에서 스토리라인 소스(텍스트 / 파일 / URL)를 입력하고 <strong className="text-blue-600">[AI 추천하기]</strong>를 실행하거나, 2번 카드에서 키워드를 설정하여 3가지 스토리라인을 추천받으세요.
-                      </p>
-                    </div>
+                  {!hasGeneratedProposals && (
                     <button
                       type="button"
                       onClick={handleRunAiRecommendation}
-                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold shadow-sm inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold shadow-sm flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
                     >
-                      <Sparkles className="w-4 h-4 text-amber-300" />
-                      <span>지금 AI 추천 스토리라인 생성하기</span>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>키워드 맞춤 AI 추론 실행</span>
                     </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* 3 Tabs Header */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-slate-200 pb-2 pt-1">
-                      {currentProposals.map((proposal, idx) => {
-                        const isSelected = activeStep1ProposalIndex === idx;
-                        return (
-                          <button
-                            key={proposal.id}
-                            type="button"
-                            onClick={() => handleSelectProposalTab(idx)}
-                            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                              isSelected
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                            <span>{proposal.tabLabel}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  )}
+                </div>
 
-                    {/* 3 Proposal Cards Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
-                      {currentProposals.map((proposal, idx) => {
-                        const isSelected = activeStep1ProposalIndex === idx;
-                        return (
-                          <div
-                            key={proposal.id}
-                            onClick={() => handleSelectProposalTab(idx)}
-                            className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
-                              isSelected
-                                ? 'bg-blue-50/90 border-blue-600 ring-2 ring-blue-500/20 shadow-md'
-                                : 'bg-slate-50 border-slate-200 hover:border-blue-300 hover:bg-white'
-                            }`}
-                          >
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                  isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
-                                }`}>
-                                  {proposal.badge}
-                                </span>
-                                {isSelected && (
-                                  <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>기획서 반영됨</span>
-                                  </span>
-                                )}
-                              </div>
+                {/* 3 Tabs Header (항상 노출되어 바로 확인 가능) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-slate-200 pb-2 pt-1">
+                  {currentProposals.map((proposal, idx) => {
+                    const isSelected = activeStep1ProposalIndex === idx;
+                    return (
+                      <button
+                        key={proposal.id}
+                        type="button"
+                        onClick={() => handleSelectProposalTab(idx)}
+                        className={`py-2.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                        <span>{proposal.tabLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                              <div className="font-extrabold text-sm text-slate-900 leading-snug">
-                                {proposal.title}
-                              </div>
-                              <div className="text-xs text-blue-700 font-semibold">
-                                {proposal.subtitle}
-                              </div>
-                              <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
-                                {proposal.logline}
-                              </p>
-                            </div>
-
-                            <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
-                              <span className="text-slate-500 font-mono text-[11px]">필명: {proposal.penName}</span>
-                              <span className={`font-bold ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
-                                {isSelected ? '상세항목 추가 완료' : '이 탭 선택하여 상세항목 추가 →'}
+                {/* 3 Proposal Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+                  {currentProposals.map((proposal, idx) => {
+                    const isSelected = activeStep1ProposalIndex === idx;
+                    return (
+                      <div
+                        key={proposal.id}
+                        onClick={() => handleSelectProposalTab(idx)}
+                        className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-blue-50/90 border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                            : 'bg-slate-50 border-slate-200 hover:border-blue-300 hover:bg-white'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                            }`}>
+                              {proposal.badge}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" />
+                                <span>기획서 반영됨</span>
                               </span>
-                            </div>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
+
+                          <div className="font-extrabold text-sm text-slate-900 leading-snug">
+                            {proposal.title}
+                          </div>
+                          <div className="text-xs text-blue-700 font-semibold">
+                            {proposal.subtitle}
+                          </div>
+                          <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
+                            {proposal.logline}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                          <span className="text-slate-500 font-mono text-[11px]">필명: {proposal.penName}</span>
+                          <span className={`font-bold ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
+                            {isSelected ? '상세항목 추가 완료' : '이 탭 선택하여 상세항목 추가 →'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* SECTION D: 기획서 상세 항목 (직접 편집 가능) */}
@@ -1854,16 +1989,39 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
           {currentStep === 2 && (
             <div className="space-y-6 animate-in fade-in duration-150">
               
-              <div className="bg-slate-100 p-3.5 rounded-xl border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-600">1단계 연계 장르 & 제목:</span>
-                  <strong className="text-blue-700 font-extrabold">{title}</strong>
-                  <span className="text-slate-400">|</span>
-                  <span className="text-slate-600 font-mono">[{activeGenreOption.label.split('(')[0].trim()}]</span>
+              {/* 1단계 기획서 종합 연계 카드 (2단계에서는 1단계의 정보를 가지고 2단계로 진행) */}
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 p-4 rounded-2xl border border-blue-200 text-xs space-y-2.5 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-blue-200/60 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded-lg bg-blue-600 text-white font-bold text-[10px]">1단계 기획 연계</span>
+                    <strong className="text-slate-900 text-sm font-extrabold">{title}</strong>
+                    <span className="text-slate-400 font-normal">|</span>
+                    <span className="text-blue-700 font-bold font-mono">[{activeGenreOption.label.split('(')[0].trim()}]</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold text-slate-500">선택 페르소나:</span>
+                    <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Feather className="w-3 h-3 text-amber-300" />
+                      <span>{selectedPersona.name}</span>
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {selectedKeywords.slice(0, 3).map((kw) => (
-                    <span key={kw} className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 text-[11px]">
+                  <div>
+                    <span className="text-slate-500 font-semibold mr-1">로그라인:</span>
+                    <span className="font-medium line-clamp-1">{logline}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold mr-1">스토리라인 요약:</span>
+                    <span className="font-medium line-clamp-1">{storySummary}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-bold text-slate-500 mr-1">적용 키워드:</span>
+                  {selectedKeywords.map((kw) => (
+                    <span key={kw} className="bg-white border border-blue-200 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-lg shadow-2xs">
                       {kw}
                     </span>
                   ))}
@@ -2270,109 +2428,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                 </div>
               </div>
 
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* STEP 5: 장르별 작가 페르소나 카드뷰 분류 & 완료 */}
-          {/* ========================================================================= */}
-          {currentStep === 5 && (
-            <div className="space-y-6 animate-in fade-in duration-150">
-              
-              <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200 text-xs sm:text-sm text-blue-900 leading-relaxed">
-                <strong className="text-blue-700 font-bold block mb-1">
-                  💡 5단계 장르별 작가 페르소나 카드뷰 분류
-                </strong>
-                웹소설 장르(현대판타지/기업, 헌터/성좌, 로판, 무협, 판타지, 맞춤)에 맞춰 분류된 국내 대표 작가들의 집필 페르소나를 선택하세요.
-              </div>
-
-              {/* Genre Category Filter Tabs for Personas */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-700 block">장르별 페르소나 카테고리 필터:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {PERSONA_CATEGORIES.map((cat) => {
-                    const isCatSelected = selectedPersonaCategory === cat.key;
-                    const isNovelGenreMatch = selectedGenreKey === cat.key;
-                    return (
-                      <button
-                        key={cat.key}
-                        type="button"
-                        onClick={() => setSelectedPersonaCategory(cat.key)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                          isCatSelected
-                            ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
-                            : 'bg-white text-slate-700 border border-slate-300 hover:border-blue-400 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span>{cat.label}</span>
-                        {isNovelGenreMatch && (
-                          <span className="text-[10px] bg-amber-400 text-slate-900 font-extrabold px-1.5 py-0.2 rounded-full">
-                            현재 장르
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Persona Cards Grid (Filtered) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {filteredPersonas.map((persona) => {
-                  const isSelected = selectedPersonaId === persona.id;
-                  const isGenreMatch = persona.category === selectedGenreKey;
-                  return (
-                    <div
-                      key={persona.id}
-                      onClick={() => setSelectedPersonaId(persona.id)}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                        isSelected
-                          ? 'bg-blue-50/80 border-blue-600 text-slate-900 ring-2 ring-blue-500/20 shadow-md'
-                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
-                            <Feather className={`w-3.5 h-3.5 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
-                            <span>{persona.name}</span>
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {isGenreMatch && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                장르 최적화
-                              </span>
-                            )}
-                            {isSelected ? (
-                              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                            ) : (
-                              <span className="text-[11px] font-mono text-slate-400">{persona.masterpiece}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="text-[11px] font-mono text-blue-700 font-semibold">
-                          {persona.genre}
-                        </div>
-
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          {persona.styleDescription}
-                        </p>
-                      </div>
-
-                      {/* Signature Hook Preview */}
-                      <div className="mt-3 pt-2.5 border-t border-slate-100">
-                        <div className="text-[10px] text-slate-400 font-mono mb-1">대표 시그니처 연출:</div>
-                        <div className="text-[11px] text-slate-800 font-mono italic bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                          {persona.signatureHook}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Final Review Summary Card */}
+              {/* Final Review Summary Card (4단계에서 완료) */}
               <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div className="flex items-center gap-2">
@@ -2397,7 +2453,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
                     <div><span className="text-slate-400">적용 키워드:</span> <span className="text-indigo-300">{selectedKeywords.join(', ')}</span></div>
                     <div><span className="text-slate-400">세계관 테제:</span> <span className="text-slate-200 line-clamp-1">{worldThesis}</span></div>
                     <div><span className="text-slate-400">1~4막 구조:</span> <span className="text-slate-200">기(25화) · 승(25화) · 전(25화) · 결(25화)</span></div>
-                    <div><span className="text-slate-400">선택 페르소나:</span> <span className="text-amber-300 font-bold">{selectedPersona.name}</span></div>
+                    <div><span className="text-slate-400">선택 페르소나 (1단계 3번 카드):</span> <span className="text-amber-300 font-bold">{selectedPersona.name}</span></div>
                   </div>
                 </div>
 
@@ -2409,7 +2465,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
             </div>
           )}
 
-          {/* Footer Navigation Buttons */}
+          {/* Footer Navigation Buttons (4단계 체계) */}
           <div className="pt-6 border-t border-slate-200 flex items-center justify-between">
             <div>
               {currentStep > 1 ? (
@@ -2433,10 +2489,10 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
             </div>
 
             <div className="flex items-center gap-2.5">
-              {currentStep < 5 ? (
+              {currentStep < 4 ? (
                 <button
                   type="button"
-                  onClick={() => setCurrentStep((prev) => Math.min(5, prev + 1))}
+                  onClick={() => setCurrentStep((prev) => Math.min(4, prev + 1))}
                   className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-900/20 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <span>다음 단계</span>
