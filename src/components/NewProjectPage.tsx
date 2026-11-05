@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   Sword,
@@ -31,6 +31,8 @@ import {
   WebNovelProject,
   createProjectFromTemplate
 } from '../data/projectTemplates';
+import { getActiveAiCredentials } from '../data/aiSettings';
+import { requestAi, describeModel } from '../data/aiClient';
 
 interface NewProjectPageProps {
   onCreateProject: (newProject: WebNovelProject) => void;
@@ -793,69 +795,50 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
       });
     }, 120);
 
-    const controller = new AbortController();
-    const abortTimeout = setTimeout(() => controller.abort(), 4000);
+    const credentials = getActiveAiCredentials();
+    const result = await requestAi<any>('/api/ai/generate-proposals', {
+      genreKey: selectedGenreKey,
+      genreLabel: genreOpt.label,
+      keywords: initialKws,
+      sourceContext,
+      sourceUrl,
+      provider: credentials.provider,
+      apiKey: credentials.apiKey,
+      model: credentials.model,
+    });
+    clearInterval(intervalId);
 
-    try {
-      const res = await fetch('/api/ai/generate-proposals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          genreKey: selectedGenreKey,
-          genreLabel: genreOpt.label,
-          keywords: initialKws,
-          sourceContext,
-          sourceUrl
-        }),
-        signal: controller.signal
-      });
+    if (result.ok && Array.isArray(result.data.proposals) && result.data.proposals.length > 0) {
+      const data = result.data;
 
-      clearTimeout(abortTimeout);
-      clearInterval(intervalId);
-
-      if (res.ok) {
-        const data = await res.json();
-        
-        // 2번 카드뷰 하단 스토리라인 요약 자동 반영
-        if (data.storySummary) {
-          setStorySummary(data.storySummary);
-        } else if (sourceContext) {
-          setStorySummary(`[작가 입력 소스 요약] ${sourceContext.slice(0, 180)}...`);
-        }
-
-        // 2번 카드뷰 키워드 자동 등록
-        if (Array.isArray(data.keywords) && data.keywords.length > 0) {
-          setSelectedKeywords(data.keywords);
-        } else if (selectedKeywords.length === 0) {
-          setSelectedKeywords(initialKws);
-        }
-
-        if (data.success && Array.isArray(data.proposals) && data.proposals.length > 0) {
-          setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: data.proposals }));
-          const chosen = data.proposals[0];
-          setActiveStep1ProposalIndex(0);
-          applyProposal(chosen, data.keywords || initialKws);
-          setHasGeneratedProposals(true);
-
-          setProgressPercent(100);
-          await new Promise((r) => setTimeout(r, 200));
-          setIsAiGenerating(false);
-          setProgressPercent(0);
-          showToast(
-            data.isRealAi
-              ? `✨ [Gemini AI 분석 완료] 2번 카드에 스토리라인 요약과 키워드가 등록되고, 4번 카드뷰에 맞춤 스토리라인이 생성되었습니다!`
-              : `✨ [AI 엔진 분석 완료] 2번 카드에 스토리라인 요약과 키워드가 등록되고, 4번 카드뷰에 맞춤 스토리라인이 생성되었습니다!`
-          );
-          return;
-        }
+      // 2번 카드뷰 하단 스토리라인 요약 자동 반영
+      if (data.storySummary) {
+        setStorySummary(data.storySummary);
       }
-    } catch (err) {
-      console.warn('AI generate-proposals fetch error or timeout, applying local generator:', err);
-    } finally {
-      clearTimeout(abortTimeout);
-      clearInterval(intervalId);
+
+      // 2번 카드뷰 키워드 자동 등록
+      if (Array.isArray(data.keywords) && data.keywords.length > 0) {
+        setSelectedKeywords(data.keywords);
+      } else if (selectedKeywords.length === 0) {
+        setSelectedKeywords(initialKws);
+      }
+
+      setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: data.proposals }));
+      setActiveStep1ProposalIndex(0);
+      applyProposal(data.proposals[0], data.keywords || initialKws);
+      setHasGeneratedProposals(true);
+
+      setProgressPercent(100);
+      await new Promise((r) => setTimeout(r, 200));
+      setIsAiGenerating(false);
+      setProgressPercent(0);
+      showToast(
+        `✨ [${credentials.provider.toUpperCase()} · ${describeModel(data, credentials.model)}] 분석 완료: 스토리라인 요약과 키워드, 맞춤 기획안 3개가 생성되었습니다.`
+      );
+      return;
     }
 
+    const failReason = result.ok ? 'AI가 기획안을 반환하지 않았습니다.' : result.error;
     // Reliable fallback path: guarantees completion without ever getting stuck
     const proposals = GENRE_PROPOSALS[selectedGenreKey] || GENRE_PROPOSALS.chaebol;
     setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: proposals }));
@@ -875,7 +858,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     await new Promise((r) => setTimeout(r, 200));
     setIsAiGenerating(false);
     setProgressPercent(0);
-    showToast(`✨ [${genreOpt.label.split('(')[0].trim()}] 소스 분석 완료: 2번 카드에 스토리라인 요약 및 키워드가 정해지고 4번에 3가지 맞춤 추천안이 생성되었습니다.`);
+    showToast(`⚠️ AI 호출 실패 (${failReason}). 표시된 3개는 AI 결과가 아닌 [${genreOpt.label.split('(')[0].trim()}] 기본 템플릿 예시입니다.`);
   };
 
   // When Genre changes in Step 1:
@@ -1027,44 +1010,29 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
         : '';
     const sourceUrl = storySourceTab === 'url' ? referenceUrl.trim() : '';
 
-    const controller = new AbortController();
-    const abortTimeout = setTimeout(() => controller.abort(), 4000);
+    const credentials = getActiveAiCredentials();
+    const result = await requestAi<any>('/api/ai/generate-proposals', {
+      genreKey: selectedGenreKey,
+      genreLabel: genreOpt.label,
+      keywords: selectedKeywords,
+      sourceContext,
+      sourceUrl,
+      provider: credentials.provider,
+      apiKey: credentials.apiKey,
+      model: credentials.model,
+    });
+    setIsCard3Generating(false);
 
-    try {
-      const res = await fetch('/api/ai/generate-proposals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          genreKey: selectedGenreKey,
-          genreLabel: genreOpt.label,
-          keywords: selectedKeywords,
-          sourceContext,
-          sourceUrl
-        }),
-        signal: controller.signal
-      });
-
-      clearTimeout(abortTimeout);
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.proposals) && data.proposals.length > 0) {
-          setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: data.proposals }));
-          setHasGeneratedProposals(true);
-          const p = data.proposals[0];
-          setActiveStep1ProposalIndex(0);
-          applyProposal(p, selectedKeywords);
-          showToast(`✨ 선택 키워드 [${selectedKeywords.join(', ')}] 기반으로 3가지 스토리라인이 3번 카드뷰에 생성되었습니다!`);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('handleGenerateAiWithKeywords error or timeout:', err);
-    } finally {
-      clearTimeout(abortTimeout);
-      setIsCard3Generating(false);
+    if (result.ok && Array.isArray(result.data.proposals) && result.data.proposals.length > 0) {
+      setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: result.data.proposals }));
+      setHasGeneratedProposals(true);
+      setActiveStep1ProposalIndex(0);
+      applyProposal(result.data.proposals[0], selectedKeywords);
+      showToast(`✨ 선택 키워드 [${selectedKeywords.join(', ')}] 기반으로 AI 기획안 3개가 생성되었습니다. (${describeModel(result.data, credentials.model)})`);
+      return;
     }
 
+    const failReason = result.ok ? 'AI가 기획안을 반환하지 않았습니다.' : result.error;
     // Fallback if error or timeout
     const proposals = GENRE_PROPOSALS[selectedGenreKey] || GENRE_PROPOSALS.chaebol;
     setDynamicProposals((prev) => ({ ...prev, [selectedGenreKey]: proposals }));
@@ -1072,7 +1040,7 @@ export const NewProjectPage: React.FC<NewProjectPageProps> = ({
     const p = proposals[0];
     setActiveStep1ProposalIndex(0);
     applyProposal(p, selectedKeywords);
-    showToast(`✨ 선택한 키워드 [${selectedKeywords.join(', ')}] 기반으로 3가지 스토리라인이 생성되었습니다!`);
+    showToast(`⚠️ AI 호출 실패 (${failReason}). 표시된 3개는 AI 결과가 아닌 기본 템플릿 예시입니다.`);
   };
 
   // Final Submission

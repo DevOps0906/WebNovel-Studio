@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Bot,
   Sparkles,
@@ -20,14 +20,16 @@ import {
 } from 'lucide-react';
 import { SceneItem } from '../data/storyData';
 import { getActiveAiCredentials, AiSettingsConfig } from '../data/aiSettings';
+import { readUsage, summarizeUsage } from '../data/usage';
 import { AiCoachGuideModal } from './AiCoachGuideModal';
 import { WebNovelProject } from '../data/projectTemplates';
+import { requestAi, describeModel, buildStyleGuide, ApplyResult, ApplyTarget } from '../data/aiClient';
 
 interface AiCoachPageProps {
   activeProject: WebNovelProject;
   activeChapterId?: string;
   activeScene?: SceneItem | null;
-  onApplySceneText?: (text: string) => void;
+  onApplySceneText?: (text: string, target: ApplyTarget) => ApplyResult;
   onOpenSettingsModal?: () => void;
   onBack?: () => void;
   aiSettings?: AiSettingsConfig;
@@ -52,8 +54,14 @@ export const AiCoachPage: React.FC<AiCoachPageProps> = ({
   const [modelUsedNotice, setModelUsedNotice] = useState<string>('');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [activeResultTab, setActiveResultTab] = useState<'draft' | 'review'>('draft');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [applyMessage, setApplyMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [generatedFor, setGeneratedFor] = useState<ApplyTarget | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const credentials = getActiveAiCredentials();
+  // A-09: 호출 후 다시 렌더링될 때 최신 사용량을 읽는다 (loading 상태 변화에 맞춰 갱신)
+  const usage = useMemo(() => summarizeUsage(readUsage(), activeProject.id), [activeProject.id, loading]);
   const providerLabel = (aiSettings?.activeProvider || credentials.provider).toUpperCase();
   const activeModel = aiSettings ? aiSettings[aiSettings.activeProvider].model : credentials.model;
 
@@ -84,76 +92,90 @@ export const AiCoachPage: React.FC<AiCoachPageProps> = ({
     }
   ];
 
+  const handleCancel = () => {
+    abortRef.current?.abort();
+  };
+
   const handleGenerate = async () => {
+    if (loading) return; // 중복 요청 방지
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setResultText('');
     setReviewReport('');
     setModelUsedNotice('');
-    try {
-      if (command === '/studio:10-review' || command === '/aiwc:10-review') {
-        const response = await fetch('/api/aiwc/review-chapter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sceneText: resultText || activeScene?.content || customPrompt || '식탁 서열과 팽팽한 심리전',
-            chapterData: `${activeChapterId} (${activeProject.title})`,
-            provider: credentials.provider,
-            apiKey: credentials.apiKey,
-            model: activeModel,
-          })
-        });
-        const data = await response.json();
-        if (data.success) {
-          setReviewReport(data.review);
-          setModelUsedNotice(activeModel);
-          setActiveResultTab('review');
-        } else {
-          setReviewReport(`[검토 실패] ${data.error || 'AI 검토 보고서를 가져오지 못했습니다. AI 설정 탭에서 API 키를 확인해주세요.'}`);
-          setActiveResultTab('review');
-        }
-      } else {
-        const response = await fetch('/api/aiwc/generate-scene', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chapterTitle: `${activeChapterId} (${activeProject.title})`,
-            sceneNumber: selectedSceneNum,
-            sceneTitle: activeScene?.title || `씬 ${selectedSceneNum}`,
-            pacingType: activeScene?.pacing || '전진',
-            isEndingHook: activeScene?.isEndingHook || false,
-            synopsis: activeScene?.synopsis || customPrompt || activeProject.coreConcept.logline,
-            customPrompt: customPrompt,
-            provider: credentials.provider,
-            apiKey: credentials.apiKey,
-            model: activeModel,
-          })
-        });
-        const data = await response.json();
-        if (data.success) {
-          setResultText(data.text);
-          setModelUsedNotice(data.modelUsed || activeModel);
-          setActiveResultTab('draft');
-        } else {
-          setResultText(`[생성 실패] ${data.error || '씬 원문을 생성하지 못했습니다. AI 설정 탭에서 API 키를 확인해주세요.'}`);
-          setActiveResultTab('draft');
-        }
+    setErrorMessage('');
+    setApplyMessage(null);
+    const styleGuide = buildStyleGuide(activeProject);
+    const isReview = command === '/studio:10-review' || command === '/aiwc:10-review';
+
+    if (isReview) {
+      const sceneText = (resultText || activeScene?.content || '').trim();
+      const result = await requestAi<{ review: string }>(
+        '/api/aiwc/review-chapter',
+        {
+          sceneText,
+          chapterData: `${activeChapterId} (${activeProject.title})`,
+          styleGuide,
+          provider: credentials.provider,
+          apiKey: credentials.apiKey,
+          model: activeModel,
+        },
+        controller.signal, { projectId: activeProject.id }
+      );
+      if (result.ok) {
+        setReviewReport(result.data.review);
+        setModelUsedNotice(describeModel(result.data, activeModel));
+      } else if (result.code !== 'cancelled') {
+        setErrorMessage(result.error);
       }
-    } catch (err) {
-      console.error(err);
-      setResultText('생성 중 오류가 발생했습니다. AI 설정 탭에서 API 키 등록 여부를 확인해주세요.');
-    } finally {
-      setLoading(false);
+      setActiveResultTab('review');
+    } else {
+      const result = await requestAi<{ text: string }>(
+        '/api/aiwc/generate-scene',
+        {
+          projectTitle: activeProject.title,
+          chapterTitle: `${activeChapterId} (${activeProject.title})`,
+          sceneNumber: selectedSceneNum,
+          sceneTitle: activeScene?.title || `씬 ${selectedSceneNum}`,
+          pacingType: activeScene?.pacing || '전진',
+          isEndingHook: activeScene?.isEndingHook || false,
+          synopsis: activeScene?.synopsis || customPrompt || activeProject.coreConcept.logline,
+          characters: activeScene?.characters?.join(', '),
+          customPrompt,
+          styleGuide,
+          provider: credentials.provider,
+          apiKey: credentials.apiKey,
+          model: activeModel,
+          temperature: credentials.temperature,
+          maxTokens: credentials.maxTokens,
+        },
+        controller.signal, { projectId: activeProject.id }
+      );
+      if (result.ok) {
+        setResultText(result.data.text);
+        setGeneratedFor({ projectId: activeProject.id, sceneId: activeScene?.id });
+        setModelUsedNotice(describeModel(result.data, activeModel));
+      } else if (result.code !== 'cancelled') {
+        setErrorMessage(result.error);
+      }
+      setActiveResultTab('draft');
     }
+    setLoading(false);
+    abortRef.current = null;
   };
 
   const handleApply = () => {
-    if (resultText && onApplySceneText) {
-      onApplySceneText(resultText);
+    if (!resultText || !onApplySceneText || !generatedFor) return;
+    const result = onApplySceneText(resultText, generatedFor);
+    if (result.ok) {
+      setApplyMessage({ ok: true, text: '씬 본문에 반영하고 저장했습니다.' });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } else {
+      setApplyMessage({ ok: false, text: result.error || '반영하지 못했습니다.' });
     }
   };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       
@@ -226,8 +248,11 @@ export const AiCoachPage: React.FC<AiCoachPageProps> = ({
             <span className="text-slate-400 ml-2">대상 챕터:</span>
             <span className="text-emerald-400 font-bold">{activeChapterId}</span>
           </div>
-          <div className="text-slate-400 text-[11px]">
-            {credentials.apiKey ? '● API 키 연동 완료' : '○ 기본 AI 엔드포인트 활성'}
+          <div className="text-slate-400 text-[11px] space-y-0.5 text-right">
+            <div>{credentials.apiKey ? '● API 키 연동 완료' : '○ API 키 미설정 (Gemini 는 서버 키 사용 가능)'}</div>
+            <div title="이 작품에서 브라우저가 기록한 AI 호출 (추정 비용은 단가 정보가 없어 계산하지 않음)">
+              이 작품 호출 {usage.calls}회 · 실패 {usage.failed}회{usage.avgLatencyMs ? ` · 평균 ${usage.avgLatencyMs.toLocaleString()}ms` : ''}
+            </div>
           </div>
         </div>
       </div>
@@ -350,6 +375,23 @@ export const AiCoachPage: React.FC<AiCoachPageProps> = ({
               )}
             </button>
 
+            {loading && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="w-full py-2 px-4 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-bold text-xs cursor-pointer"
+              >
+                생성 취소
+              </button>
+            )}
+
+            {errorMessage && (
+              <div role="alert" className="text-xs text-red-800 bg-red-50 px-3 py-2 rounded-lg border border-red-200 leading-relaxed">
+                <span className="font-bold">AI 호출 실패:</span> {errorMessage}
+                <div className="text-[11px] text-red-600 mt-1">예시 원고나 점수로 대체하지 않았습니다. 설정을 확인하고 다시 시도하세요.</div>
+              </div>
+            )}
+
             {modelUsedNotice && (
               <div className="text-xs font-mono text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 flex justify-between items-center">
                 <span>실행 모델: {modelUsedNotice}</span>
@@ -400,6 +442,14 @@ export const AiCoachPage: React.FC<AiCoachPageProps> = ({
               </div>
 
               {/* Apply / Copy Button */}
+              {applyMessage && (
+                <span
+                  role="status"
+                  className={`text-[11px] font-semibold mr-2 ${applyMessage.ok ? 'text-emerald-700' : 'text-red-600'}`}
+                >
+                  {applyMessage.text}
+                </span>
+              )}
               {resultText && activeResultTab === 'draft' && (
                 <button
                   onClick={handleApply}

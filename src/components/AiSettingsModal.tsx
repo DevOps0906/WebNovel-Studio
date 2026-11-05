@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
@@ -36,18 +36,27 @@ import {
   saveAiSettings,
   DEFAULT_AI_SETTINGS
 } from '../data/aiSettings';
+import type { WebNovelProject, SaveResult } from '../data/projectTemplates';
+import { exportBundle, parseBundle } from '../data/bundle';
 
 interface AiSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: (settings: AiSettingsConfig) => void;
+  projects?: WebNovelProject[];
+  onImportProjects?: (imported: WebNovelProject[]) => SaveResult & { renamed?: { from: string; to: string }[] };
 }
 
 export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  projects,
+  onImportProjects,
 }) => {
+  const [bundleMessage, setBundleMessage] = useState<{ ok: boolean; lines: string[] } | null>(null);
+  const [isBundleBusy, setIsBundleBusy] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'account' | 'ai_keys' | 'github'>('account');
   const [settings, setSettings] = useState<AiSettingsConfig>(DEFAULT_AI_SETTINGS);
   const [penName, setPenName] = useState('방하늘');
@@ -62,7 +71,7 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
   // GitHub Integration & Push States
   const [githubToken, setGithubToken] = useState('');
   const [showGithubToken, setShowGithubToken] = useState(false);
-  const [saveGithubToken, setSaveGithubToken] = useState(true);
+  const [saveGithubToken, setSaveGithubToken] = useState(false);
   const [githubRepoUrl, setGithubRepoUrl] = useState('https://github.com/theBestTrade/WebNovel-Studio.git');
   const [githubBranch, setGithubBranch] = useState('main');
   const [githubForcePush, setGithubForcePush] = useState(true);
@@ -97,7 +106,8 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
 
       // Load GitHub settings from localStorage
       const savedSaveTokenPref = localStorage.getItem('webnovel_studio_github_save_token');
-      const shouldSaveToken = savedSaveTokenPref !== 'false';
+      // 토큰은 명시적으로 저장을 선택한 경우에만 브라우저에 보관한다 (기본값: 저장 안 함)
+      const shouldSaveToken = savedSaveTokenPref === 'true';
       setSaveGithubToken(shouldSaveToken);
 
       if (shouldSaveToken) {
@@ -237,13 +247,56 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
     }, 800);
   };
 
+  const handleExportBundle = () => {
+    if (!projects || projects.length === 0) {
+      setBundleMessage({ ok: false, lines: ['내보낼 작품이 없습니다.'] });
+      return;
+    }
+    try {
+      const bytes = exportBundle(projects);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `WebNovel-Studio-Bundle-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBundleMessage({ ok: true, lines: [`작품 ${projects.length}개를 마크다운 묶음으로 내보냈습니다.`] });
+    } catch (err: any) {
+      setBundleMessage({ ok: false, lines: [`내보내기에 실패했습니다: ${err?.message || err}`] });
+    }
+  };
+
+  const handleImportBundle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!onImportProjects) {
+      setBundleMessage({ ok: false, lines: ['가져오기 기능이 연결되지 않았습니다.'] });
+      return;
+    }
+    setIsBundleBusy(true);
+    setBundleMessage(null);
+    try {
+      const parsed = await parseBundle(new Uint8Array(await file.arrayBuffer()));
+      const result = onImportProjects(parsed.projects);
+      const lines = [`작품 ${parsed.projects.length}개를 가져왔습니다.`];
+      (result.renamed || []).forEach((r) => lines.push(`ID 충돌: ${r.from} -> ${r.to} 로 추가했습니다 (기존 작품은 덮어쓰지 않음).`));
+      lines.push(...parsed.warnings);
+      if (!result.ok) lines.push(`저장 실패: ${result.error || ''}`);
+      setBundleMessage({ ok: result.ok, lines });
+    } catch (err: any) {
+      setBundleMessage({ ok: false, lines: [`가져오기에 실패했습니다: ${err?.message || err}`, '기존 데이터는 변경되지 않았습니다.'] });
+    } finally {
+      setIsBundleBusy(false);
+    }
+  };
   const handleExportData = () => {
     try {
       const allData = {
         exportedAt: new Date().toISOString(),
         projects: localStorage.getItem('webnovel_studio_projects_v2'),
         activeProjectId: localStorage.getItem('webnovel_studio_active_project_id'),
-        aiSettings: localStorage.getItem('webnovel_studio_ai_settings'),
       };
       const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -471,6 +524,47 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
               </button>
             </div>
 
+            {/* Markdown Bundle Export / Import (S-05) */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                    <Database className="w-4 h-4 text-emerald-400" />
+                    <span>마크다운 묶음 (복원용)</span>
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    작품을 zip(씬별 .md + project.json)으로 내보내고 같은 묶음으로 다른 기기에 복원합니다. 같은 ID의 작품은 덮어쓰지 않고 새 작품으로 추가됩니다. API 키와 토큰은 포함되지 않습니다.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleExportBundle}
+                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>내보내기</span>
+                  </button>
+                  <label className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isBundleBusy ? '가져오는 중...' : '가져오기'}</span>
+                    <input type="file" accept=".zip,application/zip" className="hidden" onChange={handleImportBundle} disabled={isBundleBusy} />
+                  </label>
+                </div>
+              </div>
+              {bundleMessage && (
+                <div
+                  role="status"
+                  className={`text-[11px] rounded-lg border px-3 py-2 space-y-0.5 ${
+                    bundleMessage.ok ? 'text-emerald-300 border-emerald-700/50 bg-emerald-900/20' : 'text-red-300 border-red-700/50 bg-red-900/20'
+                  }`}
+                >
+                  {bundleMessage.lines.map((l, i) => (
+                    <div key={i}>{l}</div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

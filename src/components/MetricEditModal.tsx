@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Save, CheckCircle2, TrendingUp, BookOpen, Layers, Edit3, HelpCircle } from 'lucide-react';
 import { WebNovelProject } from '../data/projectTemplates';
 
@@ -73,15 +73,16 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
     e.preventDefault();
     onSave({
       ...p,
-      episodesOrganized: Number(form.episodesOrganized),
+      // 계산값(화수, 분량, 완료 챕터, 현재 챕터 씬 수)은 입력을 받지 않고 현재 계산값을 유지한다.
+      episodesOrganized: p.episodesOrganized,
       episodesTarget: Number(form.episodesTarget),
-      totalWordCount: Number(form.totalWordCount),
-      completedChapters: Number(form.completedChapters),
+      totalWordCount: p.totalWordCount,
+      completedChapters: p.completedChapters,
       totalChapters: Number(form.totalChapters),
       currentChapter: form.currentChapter,
       currentChapterTitle: form.currentChapterTitle,
-      currentChapterScenesDone: Number(form.currentChapterScenesDone),
-      currentChapterScenesTotal: Number(form.currentChapterScenesTotal),
+      currentChapterScenesDone: p.currentChapterScenesDone,
+      currentChapterScenesTotal: p.currentChapterScenesTotal,
       chapterForeshadowingResolved: Number(form.chapterForeshadowingResolved),
       chapterForeshadowingTotal: Number(form.chapterForeshadowingTotal),
       openIssues: Number(form.openIssues),
@@ -231,12 +232,13 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                       min={0}
                       max={120}
                       value={form.episodesOrganized}
-                      onChange={(e) => setForm({ ...form, episodesOrganized: Number(e.target.value) })}
+                      readOnly
+                      disabled
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-blue-500"
                     />
                     <span className="text-slate-500 font-mono font-bold shrink-0">화</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">대시보드 '편성된 화' 카드에 즉시 반영됩니다.</p>
+                  <p className="text-[11px] text-slate-400 mt-1">씬·화 기록에서 자동 계산됩니다. 직접 입력할 수 없습니다.</p>
                 </div>
 
                 <div>
@@ -258,20 +260,6 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                 </div>
               </div>
 
-              {/* Quick Preset Buttons */}
-              <div className="flex items-center gap-1.5 pt-1">
-                <span className="text-[10px] text-slate-400">빠른 입력:</span>
-                {[15, 20, 25, 30, 40, 50].map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setForm({ ...form, episodesOrganized: num })}
-                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-600 transition-colors"
-                  >
-                    {num}화
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
@@ -297,12 +285,13 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                       min={0}
                       step={500}
                       value={form.totalWordCount}
-                      onChange={(e) => setForm({ ...form, totalWordCount: Number(e.target.value) })}
+                      readOnly
+                      disabled
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-blue-500"
                     />
                     <span className="text-slate-500 font-mono font-bold shrink-0">자</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">대시보드 '연재본 분량' 카드에 포맷팅되어 표기됩니다.</p>
+                  <p className="text-[11px] text-slate-400 mt-1">씬 본문 합계(씬이 없는 화는 기록값)로 자동 계산됩니다.</p>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col justify-between">
@@ -314,19 +303,6 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 pt-1">
-                <span className="text-[10px] text-slate-400">빠른 글자수:</span>
-                {[50000, 80000, 112000, 150000, 200000].map((w) => (
-                  <button
-                    key={w}
-                    type="button"
-                    onClick={() => setForm({ ...form, totalWordCount: w })}
-                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 hover:bg-amber-100 hover:text-amber-800 text-slate-600 transition-colors"
-                  >
-                    {(w / 10000).toFixed(1)}만자
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
@@ -354,7 +330,8 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                       min={0}
                       max={24}
                       value={form.completedChapters}
-                      onChange={(e) => setForm({ ...form, completedChapters: Number(e.target.value) })}
+                      readOnly
+                      disabled
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-blue-500"
                     />
                     <span className="text-slate-500 font-mono font-bold shrink-0">/ {form.totalChapters}</span>
@@ -395,7 +372,8 @@ export const MetricEditModal: React.FC<MetricEditModalProps> = ({
                       min={0}
                       max={form.currentChapterScenesTotal}
                       value={form.currentChapterScenesDone}
-                      onChange={(e) => setForm({ ...form, currentChapterScenesDone: Number(e.target.value) })}
+                      readOnly
+                      disabled
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-blue-500"
                     />
                     <span className="text-slate-500 font-mono font-bold shrink-0">/ {form.currentChapterScenesTotal}씬</span>

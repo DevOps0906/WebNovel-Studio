@@ -483,58 +483,6 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 4 Sub-Tabs Matching Image 1 (/public/assets/aistudio/image_141f4eb0.png) */}
-      {onSelectTab && (
-        <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1 border-t border-slate-200">
-          <button
-            onClick={() => onSelectTab('timeline')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === 'timeline'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 shadow-2xs'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>100화 마스터 타임라인 (4막 · 6아크)</span>
-          </button>
-
-          <button
-            onClick={() => onSelectTab('overview')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === 'overview'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 shadow-2xs'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>작품 개요 & 100화 템플릿 구조</span>
-          </button>
-
-          <button
-            onClick={() => onSelectTab('chapter')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === 'chapter'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 shadow-2xs'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>챕터 보드 & 씬 집필/AI 코칭 ({p.currentChapter})</span>
-          </button>
-
-          <button
-            onClick={() => onSelectTab('lists')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === 'lists'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 shadow-2xs'
-            }`}
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-            <span>복선 DB & 미결 과제 체크리스트</span>
-          </button>
-        </div>
-      )}
     </header>
   );
 };

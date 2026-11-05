@@ -1,4 +1,4 @@
-// Master restored database for the WebNovel-Studio and "bj-sister" Project
+﻿// Master restored database for the WebNovel-Studio and "bj-sister" Project
 
 export interface SceneItem {
   id: string;
@@ -63,8 +63,14 @@ export interface ForeshadowingItem {
   title: string;
   description: string;
   payoff: string;
-  status: '심을 예정' | '심음' | '회수됨';
+  status: '심을 예정' | '심음' | '회수 예정' | '회수됨' | '회수 취소';
   arc: string;
+  /** 심은 챕터 (예: ch04). 없으면 location 문구에서 읽는다 */
+  plantedChapter?: string;
+  /** 회수 예정 챕터 (예: ch18). 없으면 payoff 문구의 마지막 챕터를 쓴다 */
+  payoffChapter?: string;
+  resolvedChapter?: string;
+  events?: import('./lore').ForeshadowEvent[];
 }
 
 export interface IssueItem {
@@ -73,6 +79,13 @@ export interface IssueItem {
   description: string;
   status: '미결' | '해결';
   category: '고증' | '구조' | '인물' | '타임라인' | '설정';
+  /** 결정 예정 시점 (챕터 ID) */
+  dueChapter?: string;
+  /** 반영 위치 (문서·씬 등 자유 서술) */
+  appliedAt?: string;
+  /** 작가가 명시적으로 보류한 항목. 경고와 챕터 확정 조건에서 제외 */
+  deferred?: boolean;
+  resolvedAt?: string;
 }
 
 export interface DiaryItem {
@@ -860,6 +873,10 @@ export const CHAPTER_01_DATA: ChapterData = {
   title: "동생의 장례식과 암호 일기",
   episodes: "01~04화",
   status: "검토 완료",
+  // 씬 단위 본문은 보관하지 않은 기록 챕터다. 분량은 화 기록(EPISODES_DATA)에서 계산한다.
+  confirmedEpisodes: [1, 2, 3, 4],
+  scenes: [],
+  totalWords: 0,
 };
 
 export const CHAPTER_02_DATA: ChapterData = {
@@ -869,6 +886,9 @@ export const CHAPTER_02_DATA: ChapterData = {
   title: "로펌 진명과 유전자 검사",
   episodes: "05~09화",
   status: "검토 완료",
+  confirmedEpisodes: [5, 6, 7, 8, 9],
+  scenes: [],
+  totalWords: 0,
 };
 
 export const ALL_CHAPTERS_DATA: Record<string, ChapterData> = {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sidebar, TabType } from './components/Sidebar';
-import { TopGnb } from './components/TopGnb';
 import { ProjectDashboardCards } from './components/ProjectDashboardCards';
+import { StatusBoard } from './components/StatusBoard';
 import { Header } from './components/Header';
 import { TabTimeline } from './components/TabTimeline';
 import { TabOverview } from './components/TabOverview';
@@ -18,23 +18,38 @@ import { MetricEditModal } from './components/MetricEditModal';
 import { GitSyncModal } from './components/GitSyncModal';
 import {
   WebNovelProject,
-  loadAllProjects,
+  loadProjectsWithReport,
   saveAllProjects,
+  SaveResult,
   loadActiveProjectId,
   saveActiveProjectId,
   INITIAL_PROJECTS
 } from './data/projectTemplates';
 import { loadAiSettings, saveAiSettings, AiSettingsConfig } from './data/aiSettings';
 import { SceneItem } from './data/storyData';
+import type { ApplyResult, ApplyTarget } from './data/aiClient';
+import { applySceneContent } from './data/sceneEdit';
+import { mergeImportedProjects } from './data/bundle';
+import { recomputeDerived } from './data/metrics';
+import { recordVersion, historyKey, VersionReason } from './data/sceneHistory';
+import { browserStore } from './data/storage';
 import { X, BookOpen, Layers, FileText, ListChecks } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  // 주소의 ?tab=timeline 같은 쿼리로 시작 탭을 지정할 수 있다 (딥링크, 화면 캡처용)
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    const valid: TabType[] = ['dashboard', 'timeline', 'overview', 'chapter', 'lists', 'ai-coach'];
+    return valid.includes(requested as TabType) ? (requested as TabType) : 'dashboard';
+  });
   const [activeChapterId, setActiveChapterId] = useState<string>('ch03');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Projects State
-  const [projects, setProjects] = useState<WebNovelProject[]>(() => loadAllProjects());
+  const [initialLoad] = useState(() => loadProjectsWithReport());
+  const [projects, setProjects] = useState<WebNovelProject[]>(() => initialLoad.projects);
+  const [loadReport, setLoadReport] = useState(initialLoad.report);
   const [activeProjectId, setActiveProjectId] = useState<string>(() => loadActiveProjectId());
 
   // AI Settings State (Claude, ChatGPT, Gemini)
@@ -53,6 +68,16 @@ export default function App() {
 
   // Active scene for AI Coach
   const [activeSceneForAi, setActiveSceneForAi] = useState<SceneItem | null>(null);
+  const [activeSceneTarget, setActiveSceneTarget] = useState<{
+    projectId: string;
+    chapterId: string;
+    sceneId: string;
+  } | null>(null);
+
+  // 저장 상태 (S-03)
+  const [saveStatus, setSaveStatus] = useState<{ state: 'saved' | 'saving' | 'error'; message?: string; at?: number }>({
+    state: 'saved',
+  });
 
   // Find currently active project or fallback to first
   const activeProject = projects.find((p) => p.id === activeProjectId) || projects[0] || INITIAL_PROJECTS[0];
@@ -68,19 +93,39 @@ export default function App() {
     saveActiveProjectId(projectId);
   };
 
+  // 파생 값(분량, 진행 수치)은 저장 전에 항상 다시 계산한다.
+  const normalizeAll = (list: WebNovelProject[]) => list.map(recomputeDerived);
+
+  const persistProjects = (updated: WebNovelProject[]): SaveResult => {
+    setSaveStatus({ state: 'saving' });
+    const result = saveAllProjects(updated);
+    setSaveStatus(
+      result.ok ? { state: 'saved', at: Date.now() } : { state: 'error', message: result.error }
+    );
+    return result;
+  };
+
   const handleCreateNewProject = (newProject: WebNovelProject) => {
-    const updated = [newProject, ...projects];
+    const updated = normalizeAll([newProject, ...projects]);
     setProjects(updated);
-    saveAllProjects(updated);
+    persistProjects(updated);
     setActiveProjectId(newProject.id);
     saveActiveProjectId(newProject.id);
     setActiveTab('timeline');
   };
 
+  const handleImportProjects = (imported: WebNovelProject[]) => {
+    const merged = mergeImportedProjects(projects, imported);
+    merged.projects = normalizeAll(merged.projects);
+    setProjects(merged.projects);
+    const saved = persistProjects(merged.projects);
+    return { ...saved, renamed: merged.renamed };
+  };
+
   const handleUpdateProject = (updatedProject: WebNovelProject) => {
-    const updated = projects.map((p) => (p.id === updatedProject.id ? updatedProject : p));
+    const updated = normalizeAll(projects.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
     setProjects(updated);
-    saveAllProjects(updated);
+    persistProjects(updated);
   };
 
   const handleOpenMetricModal = (metricKey?: string, project?: WebNovelProject) => {
@@ -101,17 +146,58 @@ export default function App() {
 
   const handleOpenAiForScene = (scene: SceneItem, chapterTitle: string) => {
     setActiveSceneForAi(scene);
+    setActiveSceneTarget({ projectId: activeProject.id, chapterId: activeChapterId, sceneId: scene.id });
     setActiveTab('ai-coach');
   };
 
-  const handleApplyAiTextToScene = (newText: string) => {
-    if (activeSceneForAi) {
-      activeSceneForAi.content = newText;
-      activeSceneForAi.wordCount = newText.length;
-      activeSceneForAi.status = '본문 완료';
+  // 씬 본문 변경의 단일 경로: 변경 -> 직전 본문을 버전 이력에 기록 -> 저장. AI 적용, 직접 수정, 복원이 모두 여기를 지난다.
+  const commitSceneContent = (
+    chapterId: string,
+    sceneId: string,
+    text: string,
+    reason: VersionReason,
+    status?: SceneItem['status']
+  ): ApplyResult => {
+    const edit = applySceneContent(activeProject, chapterId, sceneId, text, { status });
+    if (!edit.ok) return { ok: false, error: edit.error };
+
+    const recorded = recordVersion(browserStore, historyKey(activeProject.id, chapterId, sceneId), {
+      reason,
+      content: edit.previousContent,
+    });
+
+    const next = normalizeAll(projects.map((p) => (p.id === edit.project.id ? edit.project : p)));
+    setProjects(next);
+    const saved = persistProjects(next);
+    if (!saved.ok) {
+      return {
+        ok: false,
+        scene: edit.scene,
+        error: `화면에는 반영됐지만 저장에 실패했습니다. ${saved.error || ''}`.trim(),
+      };
     }
+    return { ok: true, scene: edit.scene, warning: recorded.ok ? undefined : recorded.error };
   };
 
+  // AI 결과 적용: 대상 확인 후 단일 경로로 저장한다.
+  const handleApplyAiTextToScene = (newText: string, target?: ApplyTarget): ApplyResult => {
+    const t = activeSceneTarget;
+    if (!t || !activeSceneForAi) {
+      return { ok: false, error: '적용할 대상 씬이 선택되지 않았습니다.' };
+    }
+    if (target && (target.projectId !== t.projectId || (target.sceneId && target.sceneId !== t.sceneId))) {
+      return { ok: false, error: '생성 당시의 대상 씬과 현재 열린 씬이 다릅니다. 적용을 중단했습니다.' };
+    }
+    if (t.projectId !== activeProject.id) {
+      return { ok: false, error: '생성 당시의 작품과 현재 열린 작품이 다릅니다. 적용을 중단했습니다.' };
+    }
+    if (!newText.trim()) {
+      return { ok: false, error: '적용할 본문이 비어 있습니다.' };
+    }
+    const result = commitSceneContent(t.chapterId, t.sceneId, newText, 'ai-apply', '본문 완료');
+    if (result.scene) setActiveSceneForAi(result.scene);
+    return result;
+  };
   const tabTitles: Record<TabType, string> = {
     dashboard: '웹소설 창작 프로젝트 대시보드',
     timeline: '작품 전체 100화 마스터 타임라인 (4막 · 6아크)',
@@ -139,6 +225,7 @@ export default function App() {
           onToggleAiCoach={() => setActiveTab('ai-coach')}
           isAiCoachOpen={activeTab === 'ai-coach'}
           onOpenWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
+          onOpenGitModal={() => setIsGitModalOpen(true)}
           activeChapterId={activeChapterId}
           aiSettings={aiSettings}
         />
@@ -191,6 +278,10 @@ export default function App() {
                 setIsWorkspaceModalOpen(true);
                 setIsMobileMenuOpen(false);
               }}
+              onOpenGitModal={() => {
+                setIsGitModalOpen(true);
+                setIsMobileMenuOpen(false);
+              }}
               activeChapterId={activeChapterId}
               aiSettings={aiSettings}
             />
@@ -202,26 +293,23 @@ export default function App() {
       <div className="flex-1 min-w-0 flex flex-col min-h-screen overflow-y-auto bg-slate-100">
         
         {/* 상단 GNB 메뉴바: 로그인 계정, 설정아이콘, 관련 툴 기능 포함 */}
-        <TopGnb
-          userEmail="skydy96@gmail.com"
-          activeProject={activeProject}
-          projects={projects}
-          onSelectProject={handleSelectProject}
-          aiSettings={aiSettings}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          onOpenNewProjectModal={() => setActiveTab('new-project')}
-          onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
-          onOpenPdfModal={() => setIsPdfModalOpen(true)}
-          onToggleAiCoach={() => setActiveTab('ai-coach')}
-          isAiCoachOpen={activeTab === 'ai-coach'}
-          onOpenWorkspaceModal={() => setIsWorkspaceModalOpen(true)}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(true)}
-          onOpenGitModal={() => setIsGitModalOpen(true)}
-        />
 
         {/* Main Content Viewport */}
         <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1440px] mx-auto w-full">
+          {loadReport.reason && (
+            <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
+              <div className="space-y-0.5">
+                <div className="font-bold">저장된 작품 데이터를 읽지 못했습니다.</div>
+                <div>사유: {loadReport.reason}</div>
+                {loadReport.quarantinedKey ? (
+                  <div>원본은 삭제하지 않고 격리했습니다 (<code>{loadReport.quarantinedKey}</code>). 샘플 데이터로 시작합니다.</div>
+                ) : (
+                  <div>격리에도 실패했습니다. 원본은 브라우저 저장소에 그대로 남아 있으니 저장 전에 백업하세요.</div>
+                )}
+              </div>
+              <button type="button" onClick={() => setLoadReport({})} className="shrink-0 underline cursor-pointer">닫기</button>
+            </div>
+          )}
           
           {/* VIEW A: 대시보드 뷰 (Image 2 - activeTab === 'dashboard') */}
           {activeTab === 'dashboard' && (
@@ -238,6 +326,7 @@ export default function App() {
                 aiSettings={aiSettings}
                 onOpenMetricEditModal={handleOpenMetricModal}
               />
+              <StatusBoard project={activeProject} onSelectTab={setActiveTab} />
             </div>
           )}
 
@@ -308,11 +397,15 @@ export default function App() {
                     activeChapterId={activeChapterId}
                     onSelectChapter={setActiveChapterId}
                     onOpenAiSceneDraft={handleOpenAiForScene}
+                    onSaveSceneContent={(chapterId, sceneId, text) => commitSceneContent(chapterId, sceneId, text, 'manual-edit')}
+                    onRestoreSceneContent={(chapterId, sceneId, text) => commitSceneContent(chapterId, sceneId, text, 'restore')}
+                    projectId={activeProject.id}
+                    onUpdateProject={handleUpdateProject}
                   />
                 )}
 
                 {activeTab === 'lists' && (
-                  <TabLists activeProject={activeProject} />
+                  <TabLists activeProject={activeProject} onUpdateProject={handleUpdateProject} />
                 )}
               </main>
             </div>
@@ -327,6 +420,7 @@ export default function App() {
 
       {/* AI Coach Drawer */}
       <AiCoachDrawer
+        activeProject={activeProject}
         isOpen={isAiCoachOpen}
         onClose={() => setIsAiCoachOpen(false)}
         activeScene={activeSceneForAi}
@@ -361,6 +455,8 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         onSave={handleSaveAiSettings}
+        projects={projects}
+        onImportProjects={handleImportProjects}
       />
 
       {/* GitHub Repository Sync & Source Export Modal */}
@@ -384,6 +480,35 @@ export default function App() {
           }}
         />
       )}
+
+      {/* 저장 상태 표시: 저장됨 / 저장 중 / 저장 실패 */}
+      <div
+        role="status"
+        aria-live="polite"
+        className={`fixed bottom-4 right-4 z-[60] max-w-sm px-3 py-2 rounded-xl text-xs font-semibold shadow-lg border ${
+          saveStatus.state === 'error'
+            ? 'bg-red-600 text-white border-red-700'
+            : saveStatus.state === 'saving'
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-white text-slate-600 border-slate-200'
+        }`}
+      >
+        {saveStatus.state === 'saving' && '저장 중...'}
+        {saveStatus.state === 'saved' &&
+          (saveStatus.at ? `저장됨 · ${new Date(saveStatus.at).toLocaleTimeString()}` : '저장됨')}
+        {saveStatus.state === 'error' && (
+          <div className="flex items-start gap-2">
+            <span>저장 실패: {saveStatus.message || '알 수 없는 오류'}</span>
+            <button
+              type="button"
+              onClick={() => persistProjects(projects)}
+              className="underline shrink-0 cursor-pointer"
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

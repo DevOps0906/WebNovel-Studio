@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   CHAPTER_03_DATA,
   CHAPTER_04_DATA,
@@ -6,24 +6,41 @@ import {
   SceneItem
 } from '../data/storyData';
 import { WebNovelProject } from '../data/projectTemplates';
-import { CheckCircle2, AlertCircle, Sparkles, BookOpen, X, Edit3, Send } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Sparkles, BookOpen, X, Edit3, Send, History } from 'lucide-react';
+import type { ApplyResult } from '../data/aiClient';
+import { ChapterGatePanel } from './ChapterGatePanel';
+import { ScenePolishPanel } from './ScenePolishPanel';
+import { browserStore } from '../data/storage';
+import { historyKey, listVersions, REASON_LABEL, SceneVersion } from '../data/sceneHistory';
 
 interface TabChapterProps {
   activeProject?: WebNovelProject;
   activeChapterId: string;
   onSelectChapter: (id: string) => void;
   onOpenAiSceneDraft: (scene: SceneItem, chapterTitle: string) => void;
+  projectId?: string;
+  onUpdateProject?: (p: WebNovelProject) => void;
+  onSaveSceneContent?: (chapterId: string, sceneId: string, text: string) => ApplyResult;
+  onRestoreSceneContent?: (chapterId: string, sceneId: string, text: string) => ApplyResult;
 }
 
 export const TabChapter: React.FC<TabChapterProps> = ({
   activeProject,
   activeChapterId,
   onSelectChapter,
-  onOpenAiSceneDraft
+  onOpenAiSceneDraft,
+  projectId,
+  onUpdateProject,
+  onSaveSceneContent,
+  onRestoreSceneContent
 }) => {
   const [selectedScene, setSelectedScene] = useState<SceneItem | null>(null);
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [editedText, setEditedText] = useState('');
+  const [sceneMessage, setSceneMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showPolish, setShowPolish] = useState(false);
+  const [versions, setVersions] = useState<SceneVersion[]>([]);
 
   // Extract chapters from activeProject or fallback
   const projectChapters: ChapterData[] = activeProject?.chapters
@@ -50,19 +67,53 @@ export const TabChapter: React.FC<TabChapterProps> = ({
     );
   };
 
+  const refreshVersions = (scene: SceneItem | null) => {
+    if (!scene || !projectId) {
+      setVersions([]);
+      return;
+    }
+    setVersions(listVersions(browserStore, historyKey(projectId, currentChapter.id, scene.id)));
+  };
+
   const handleOpenScene = (scene: SceneItem) => {
     setSelectedScene(scene);
     setEditedText(scene.content);
     setIsEditingScene(false);
+    setSceneMessage(null);
+    setShowHistory(false);
+    setShowPolish(false);
+    refreshVersions(scene);
+  };
+
+  const reportResult = (result: ApplyResult, okText: string) => {
+    if (result.scene) {
+      setSelectedScene(result.scene);
+      setEditedText(result.scene.content);
+    }
+    if (result.ok) {
+      setSceneMessage({ ok: true, text: result.warning ? `${okText} (주의: ${result.warning})` : okText });
+    } else {
+      setSceneMessage({ ok: false, text: result.error || '저장하지 못했습니다.' });
+    }
+    refreshVersions(result.scene || selectedScene);
   };
 
   const handleSaveScene = () => {
     if (!selectedScene) return;
-    selectedScene.content = editedText;
-    selectedScene.wordCount = editedText.length;
-    setIsEditingScene(false);
+    if (!onSaveSceneContent) {
+      setSceneMessage({ ok: false, text: '저장 기능이 연결되지 않았습니다.' });
+      return;
+    }
+    const result = onSaveSceneContent(currentChapter.id, selectedScene.id, editedText);
+    reportResult(result, '저장했습니다.');
+    if (result.ok) setIsEditingScene(false);
   };
 
+  const handleRestoreVersion = (version: SceneVersion) => {
+    if (!selectedScene || !onRestoreSceneContent) return;
+    const result = onRestoreSceneContent(currentChapter.id, selectedScene.id, version.content);
+    reportResult(result, '선택한 버전으로 복원했습니다. 복원 직전 본문도 이력에 남았습니다.');
+  };
   // Split scenes by stage
   const giScenes = currentChapter.scenes.filter(s => s.stage === '기');
   const seungScenes = currentChapter.scenes.filter(s => s.stage === '승');
@@ -96,6 +147,10 @@ export const TabChapter: React.FC<TabChapterProps> = ({
           );
         })}
       </div>
+
+      {activeProject && onUpdateProject && (
+        <ChapterGatePanel project={activeProject} chapterId={currentChapter.id} onUpdateProject={onUpdateProject} />
+      )}
 
       {/* Chapter Details & Step Progress */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
@@ -470,6 +525,54 @@ export const TabChapter: React.FC<TabChapterProps> = ({
               </div>
             </div>
 
+            {sceneMessage && (
+              <div
+                role="status"
+                className={`text-[11px] font-semibold px-3 py-1.5 rounded border shrink-0 ${
+                  sceneMessage.ok ? 'text-emerald-800 bg-emerald-50 border-emerald-200' : 'text-red-800 bg-red-50 border-red-200'
+                }`}
+              >
+                {sceneMessage.text}
+              </div>
+            )}
+
+            {showPolish && activeProject && selectedScene && (
+              <div className="shrink-0 max-h-[46vh] overflow-y-auto">
+                <ScenePolishPanel
+                  project={activeProject}
+                  chapterId={currentChapter.id}
+                  scene={selectedScene}
+                  onSaveSceneContent={onSaveSceneContent}
+                  onUpdateProject={onUpdateProject}
+                />
+              </div>
+            )}
+
+            {showHistory && (
+              <div className="border border-slate-200 rounded-lg max-h-48 overflow-y-auto shrink-0 text-xs divide-y divide-slate-100">
+                {versions.length === 0 ? (
+                  <div className="p-3 text-slate-400">저장된 이전 버전이 없습니다.</div>
+                ) : (
+                  versions.map((v) => (
+                    <div key={v.id} className="p-2.5 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] text-slate-500">
+                          {new Date(v.savedAt).toLocaleString()} · {REASON_LABEL[v.reason]} · {v.wordCount.toLocaleString()}자
+                        </div>
+                        <div className="text-slate-700 truncate">{v.content.slice(0, 80)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreVersion(v)}
+                        className="shrink-0 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 font-semibold text-slate-700"
+                      >
+                        복원
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
             {/* Modal Footer */}
             <div className="pt-3 border-t border-slate-200 flex justify-between items-center shrink-0">
               <button
@@ -481,6 +584,24 @@ export const TabChapter: React.FC<TabChapterProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
                 <span>AI 코치로 씬 집필/다듬기</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPolish((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-bold border border-indigo-200 transition-colors"
+              >
+                <span>윤문·점검</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  refreshVersions(selectedScene);
+                  setShowHistory((v) => !v);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-bold border border-slate-200 transition-colors"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>버전 이력 ({versions.length})</span>
               </button>
 
               <button

@@ -4,10 +4,69 @@
 > 100화 완결 4막·6아크·24챕터 공학적 플롯 엔진, 실시간 집필 관제 대시보드, 복선/미결 추적기, 멀티 모델(Gemini · Claude · OpenAI) AI 페어 라이팅 코치가 통합된 차세대 전문 웹소설 창작 플랫폼
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7-blue)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-cyan)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Express-4.21-lightgrey)](https://expressjs.com/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-38bdf8)](https://tailwindcss.com/)
+
+---
+
+## 빠른 시작
+
+Node.js와 npm이 설치된 환경에서 다음 명령을 실행합니다. 의존성은 `package-lock.json` 기준으로 설치합니다.
+
+```sh
+npm ci
+npm run dev
+```
+
+기본 접속 주소는 `http://localhost:3000`입니다. 포트와 호스트는 `PORT`·`HOST` 환경변수 또는 다음 실행 인자로 변경할 수 있습니다.
+
+```sh
+npm run dev -- --port 8787 --host 127.0.0.1
+```
+
+AI 기능은 앱의 **설정 → AI API 키**에서 제공자와 키를 지정합니다. Gemini는 `.env.example`을 `.env`로 복사한 뒤 `GEMINI_API_KEY`를 설정하는 방식도 지원합니다. 원고 편집과 백업은 AI 키 없이 사용할 수 있습니다.
+
+| 명령 | 용도 |
+|---|---|
+| `npm run dev` / `npm start` | Express 서버 실행 (개발 환경에서는 Vite 미들웨어 사용) |
+| `npm run lint` | TypeScript 타입 검사 |
+| `npm test` | Node.js 테스트 러너로 자동화 테스트 실행 |
+| `npm run build` | 프런트엔드 배포 파일을 `dist/`에 생성 |
+| `npm run check` | 타입 검사 → 테스트 → 빌드 순서로 전체 검증 |
+
+배포 시에는 먼저 `npm run build`를 실행하고, `NODE_ENV=production`을 설정한 환경에서 `npm start`로 Express 서버를 시작합니다.
+
+## 최근 구현 사항 (2026-11-06)
+
+| 영역 | 추가·개선 내용 |
+|---|---|
+| 원고 보존 | 저장 상태와 실패 시 재시도 표시, 손상된 프로젝트 데이터 격리, 씬별 최대 20개 버전 이력과 복원 |
+| 백업·복원 | 설정의 **마크다운 묶음 (복원용)**에서 씬별 `.md`와 `project.json`을 ZIP으로 내보내기·가져오기. 작품 ID 충돌 시 새 ID로 추가하며 API 키·토큰은 제외 |
+| AI 코치 | 제공자 공통 호출, 오류·타임아웃·취소 구분, 요청/실제 모델 기록, 작품 문맥 전달, 적용 대상 확인, 호출·실패·지연 통계 |
+| 집필 지표 | 씬 본문을 기준으로 화·챕터·작품 분량 재계산, 분량 경고, 엔딩 훅 기록, 챕터 확정 조건 점검 |
+| 설정·복선 | 설정결정과 대체·폐기 기록, 키워드 기반 영향 조회, 고증 관리, 복선 5단계 상태와 이력, 미결·회수 기한 경고 |
+| 윤문 | `%%` 주석 기반 요청, 문장 단위 비교와 채택·기각·보류, 문체·반복 후보 및 대사 통계 |
+| 화면 | 사이드바·타임라인 개편, 상태판과 서사 점검 패널 추가 |
+| Git 연동 | 셸 문자열 대신 인자 배열 사용, 저장소·브랜치·메시지 검증, 토큰 출력 마스킹, 토큰 브라우저 저장 기본 해제 |
+
+### 저장 방식과 현재 범위
+
+- 프로젝트는 현재 브라우저 `localStorage`에 저장됩니다. 다른 브라우저나 기기로 옮길 때는 마크다운 묶음을 내보낸 뒤 가져옵니다.
+- AI API 키는 브라우저에 보관되며, 백업에는 포함되지 않습니다. AI 사용 비용은 아직 계산하지 않습니다.
+- Git 연동 대상은 `GIT_REPO_DIR` 환경변수로 지정하며 기본값은 서버 작업 디렉터리입니다. 원고 백업은 마크다운 묶음 기능을 사용합니다.
+- 분량·구조의 잠정 기준은 [`src/config/storyRules.ts`](src/config/storyRules.ts)에 있습니다. 기존 기획 명세와 샘플에는 다른 수치가 남아 있어 아래 표는 기획 참고 자료로 함께 읽어야 합니다.
+- 인물 시간선은 기록과 충돌 후보 표시를 지원합니다. 본문 자동 검사와 브라우저 실사용·기기 간 복원 검증은 추가 확인이 필요합니다.
+
+### 개발 문서와 검증
+
+- [통합 기획안](webnovel_studio_integrated_plan.md)
+- [플랫폼 현황과 기획 갭](docs/PLATFORM_GAP_ANALYSIS.md)
+- [개발 생애주기와 단계별 완료 조건](docs/DEVELOPMENT_LIFECYCLE.md)
+- [화면 디자인 참고 자료](docs/design-reference/)
+
+이번 변경은 `npm run check`로 타입 검사, 자동화 테스트 **91개**, 프로덕션 빌드를 통과했습니다. 현재 빌드에는 Vite 설정의 `__dirname` 사용과 500KB 초과 청크에 대한 경고가 남아 있습니다. 브라우저 UI 검증은 자동화 테스트 범위에 포함되지 않습니다.
 
 ---
 

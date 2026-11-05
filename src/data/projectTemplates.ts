@@ -1,4 +1,4 @@
-import {
+﻿import {
   CharacterItem,
   ArcItem,
   EpisodeStat,
@@ -15,6 +15,12 @@ import {
   UNRESOLVED_ISSUES,
   DIARIES_DATA
 } from './storyData';
+import { KeyValueStore, browserStore, quarantineRaw } from './storage';
+import { recomputeDerived } from './metrics';
+import type { DecisionItem, ResearchItem } from './lore';
+import type { ReviewNote } from './editing';
+import type { EpisodeHook } from './hooks';
+import type { KnowledgeEntry } from './characterTimeline';
 
 export interface ProjectProgress {
   currentChapter: string;
@@ -67,6 +73,16 @@ export interface WebNovelProject {
   foreshadowing: ForeshadowingItem[];
   unresolvedIssues: IssueItem[];
   diaries: DiaryItem[];
+  /** C-01: 설정결정 목록 */
+  decisions?: DecisionItem[];
+  /** C-03: 고증 목록 */
+  research?: ResearchItem[];
+  /** R-02: 윤문 비교노트 */
+  reviewNotes?: ReviewNote[];
+  /** U-04: 화별 엔딩 훅 기록 (키: 화 번호) */
+  episodeHooks?: Record<number, EpisodeHook>;
+  /** C-07: 인물 시간선 (인물이 알게 된 사실) */
+  knowledge?: KnowledgeEntry[];
 }
 
 // 1. Initial Reference Project: bj-sister (가짜 막내손녀는 재벌가를 집어삼킨다)
@@ -599,10 +615,12 @@ export const INITIAL_PROJECTS: WebNovelProject[] = [
   PROJECT_VILLAINESS_ESCAPE,
 ];
 
-const STORAGE_PROJECTS_KEY = 'webnovel_studio_projects_v2';
-const STORAGE_ACTIVE_ID_KEY = 'webnovel_studio_active_project_id_v2';
+export const STORAGE_PROJECTS_KEY = 'webnovel_studio_projects_v2';
+export const STORAGE_ACTIVE_ID_KEY = 'webnovel_studio_active_project_id_v2';
 
-export const ensureProjectIntegrity = (p: any): WebNovelProject => {
+export const ensureProjectIntegrity = (p: any): WebNovelProject => recomputeDerived(normalizeProject(p));
+
+const normalizeProject = (p: any): WebNovelProject => {
   if (!p || typeof p !== 'object') {
     return PROJECT_BJ_SISTER;
   }
@@ -674,53 +692,95 @@ export const ensureProjectIntegrity = (p: any): WebNovelProject => {
     foreshadowing: Array.isArray(p.foreshadowing) ? p.foreshadowing : [],
     unresolvedIssues: Array.isArray(p.unresolvedIssues) ? p.unresolvedIssues : [],
     diaries: Array.isArray(p.diaries) ? p.diaries : [],
+    decisions: Array.isArray(p.decisions) ? p.decisions : [],
+    research: Array.isArray(p.research) ? p.research : [],
+    reviewNotes: Array.isArray(p.reviewNotes) ? p.reviewNotes : [],
+    episodeHooks: p.episodeHooks && typeof p.episodeHooks === 'object' && !Array.isArray(p.episodeHooks) ? p.episodeHooks : {},
+    knowledge: Array.isArray(p.knowledge) ? p.knowledge : [],
   };
 };
 
-export const loadAllProjects = (): WebNovelProject[] => {
+export interface LoadReport {
+  /** 손상된 저장 데이터를 격리했다면 격리 키 */
+  quarantinedKey?: string;
+  /** 손상 사유 */
+  reason?: string;
+  /** 격리 자체에 실패한 경우. 이때는 원본이 그대로 남아 있다. */
+  quarantineFailed?: boolean;
+}
+
+export const loadProjectsWithReport = (
+  store: KeyValueStore = browserStore
+): { projects: WebNovelProject[]; report: LoadReport } => {
+  const fresh = () => INITIAL_PROJECTS.map(ensureProjectIntegrity);
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_PROJECTS_KEY);
-    if (!raw) {
-      const sanitizedInitial = INITIAL_PROJECTS.map(ensureProjectIntegrity);
-      saveAllProjects(sanitizedInitial);
-      return sanitizedInitial;
-    }
+    raw = store.getItem(STORAGE_PROJECTS_KEY);
+  } catch (err: any) {
+    return { projects: fresh(), report: { reason: `저장소를 읽지 못했습니다: ${err?.message || err}` } };
+  }
+
+  if (!raw) {
+    const initial = fresh();
+    saveAllProjects(initial, store);
+    return { projects: initial, report: {} };
+  }
+
+  try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map(ensureProjectIntegrity);
+    if (!Array.isArray(parsed)) throw new Error('프로젝트 목록 형식이 배열이 아닙니다.');
+    if (parsed.length === 0) return { projects: fresh(), report: {} };
+    if (parsed.some((p) => !p || typeof p !== 'object' || typeof p.id !== 'string')) {
+      throw new Error('id 가 없는 프로젝트 항목이 있습니다.');
     }
-    return INITIAL_PROJECTS.map(ensureProjectIntegrity);
-  } catch (err) {
+    return { projects: parsed.map(ensureProjectIntegrity), report: {} };
+  } catch (err: any) {
+    const reason = err?.message || String(err);
     console.error('Error loading projects:', err);
-    return INITIAL_PROJECTS.map(ensureProjectIntegrity);
+    const quarantinedKey = quarantineRaw(store, STORAGE_PROJECTS_KEY, raw, reason);
+    return {
+      projects: fresh(),
+      report: quarantinedKey ? { quarantinedKey, reason } : { reason, quarantineFailed: true },
+    };
   }
 };
 
-export const saveAllProjects = (projects: WebNovelProject[]): void => {
+export const loadAllProjects = (): WebNovelProject[] => loadProjectsWithReport().projects;
+
+export interface SaveResult {
+  ok: boolean;
+  error?: string;
+}
+
+export const saveAllProjects = (projects: WebNovelProject[], store: KeyValueStore = browserStore): SaveResult => {
   try {
-    localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(projects));
-  } catch (err) {
+    store.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(projects));
+    return { ok: true };
+  } catch (err: any) {
     console.error('Error saving projects:', err);
+    const quota = err?.name === 'QuotaExceededError';
+    return {
+      ok: false,
+      error: quota ? '브라우저 저장 공간이 가득 찼습니다. 백업을 내보낸 뒤 공간을 확보해주세요.' : `저장에 실패했습니다: ${err?.message || err}`,
+    };
   }
 };
 
-export const loadActiveProjectId = (): string => {
+export const loadActiveProjectId = (store: KeyValueStore = browserStore): string => {
   try {
-    const saved = localStorage.getItem(STORAGE_ACTIVE_ID_KEY);
-    return saved || 'bj-sister';
+    return store.getItem(STORAGE_ACTIVE_ID_KEY) || 'bj-sister';
   } catch {
     return 'bj-sister';
   }
 };
 
-export const saveActiveProjectId = (id: string): void => {
+export const saveActiveProjectId = (id: string, store: KeyValueStore = browserStore): void => {
   try {
-    localStorage.setItem(STORAGE_ACTIVE_ID_KEY, id);
+    store.setItem(STORAGE_ACTIVE_ID_KEY, id);
   } catch (err) {
     console.error('Error saving active project ID:', err);
   }
 };
-
 // Factory: Create a new project from blueprint template
 export const createProjectFromTemplate = (
   templateType: 'chaebol' | 'hunter' | 'romfantasy' | 'wuxia' | 'custom',

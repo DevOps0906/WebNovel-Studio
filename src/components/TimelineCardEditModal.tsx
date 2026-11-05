@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Check, Edit3, Layers, BarChart2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ArcItem, EpisodeItem } from '../data/storyData';
+import { classifyEpisodeWords, isEpisodeWordWarning, EPISODE_WORD_CLASS_LABEL } from '../config/storyRules';
 
 // 1. Arc Edit Modal
 interface ArcEditModalProps {
@@ -159,6 +160,10 @@ export const ArcEditModal: React.FC<ArcEditModalProps> = ({
 // 2. Word Count & Episodes Edit Modal
 interface WordCountEditModalProps {
   episodes: EpisodeItem[];
+  /** 씬 합계로 계산되는 화. 분량 입력을 막는다 (U-02). */
+  lockedEpisodes?: Set<number>;
+  /** 계산된 화별 분량 (씬 합계 반영) */
+  computedWords?: Map<number, number>;
   isOpen: boolean;
   onClose: () => void;
   onSave: (updatedEpisodes: EpisodeItem[]) => void;
@@ -166,13 +171,18 @@ interface WordCountEditModalProps {
 
 export const WordCountEditModal: React.FC<WordCountEditModalProps> = ({
   episodes,
+  lockedEpisodes,
+  computedWords,
   isOpen,
   onClose,
   onSave,
 }) => {
-  if (!isOpen) return null;
-
   const [list, setList] = useState<EpisodeItem[]>(episodes);
+  useEffect(() => {
+    if (isOpen) setList(episodes);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleWordChange = (idx: number, words: number) => {
     const updated = [...list];
@@ -249,14 +259,30 @@ export const WordCountEditModal: React.FC<WordCountEditModalProps> = ({
                   {ep.episode}화
                 </span>
                 <div className="flex items-center gap-1.5">
-                  <label className="text-[11px] text-slate-500">분량(글자수):</label>
-                  <input
-                    type="number"
-                    value={ep.words}
-                    onChange={(e) => handleWordChange(idx, Number(e.target.value))}
-                    step={100}
-                    className="w-24 px-2 py-1 text-xs font-mono font-bold border border-slate-300 rounded focus:border-blue-500 text-right"
-                  />
+                  {(() => {
+                    const locked = lockedEpisodes?.has(ep.episode) ?? false;
+                    const shown = locked ? computedWords?.get(ep.episode) ?? ep.words : ep.words;
+                    const cls = classifyEpisodeWords(shown);
+                    return (
+                      <>
+                        {isEpisodeWordWarning(cls) && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                            {EPISODE_WORD_CLASS_LABEL[cls]}
+                          </span>
+                        )}
+                        <label className="text-[11px] text-slate-500">{locked ? '분량(씬 합계, 자동):' : '분량(수기 기록):'}</label>
+                        <input
+                          type="number"
+                          value={shown}
+                          disabled={locked}
+                          title={locked ? '이 화는 씬 본문 합계로 계산됩니다. 씬 본문을 수정하세요.' : '씬 본문이 없는 기록 화에만 직접 입력할 수 있습니다.'}
+                          onChange={(e) => handleWordChange(idx, Number(e.target.value))}
+                          step={100}
+                          className="w-24 px-2 py-1 text-xs font-mono font-bold border border-slate-300 rounded focus:border-blue-500 text-right disabled:bg-slate-100 disabled:text-slate-500"
+                        />
+                      </>
+                    );
+                  })()}
                   <span className="text-xs text-slate-400 font-mono">자</span>
                 </div>
               </div>

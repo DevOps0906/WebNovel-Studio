@@ -3,17 +3,21 @@ import { Bot, Sparkles, Send, CheckCircle2, RefreshCw, X, ShieldAlert, BookOpen,
 import { SceneItem } from '../data/storyData';
 import { getActiveAiCredentials } from '../data/aiSettings';
 import { AiCoachGuideModal } from './AiCoachGuideModal';
+import { WebNovelProject } from '../data/projectTemplates';
+import { requestAi, describeModel, buildStyleGuide, ApplyResult, ApplyTarget } from '../data/aiClient';
 
 interface AiCoachDrawerProps {
+  activeProject: WebNovelProject;
   isOpen: boolean;
   onClose: () => void;
   activeScene?: SceneItem | null;
   activeChapterTitle?: string;
-  onApplySceneText?: (text: string) => void;
+  onApplySceneText?: (text: string, target: ApplyTarget) => ApplyResult;
   onOpenSettingsModal?: () => void;
 }
 
 export const AiCoachDrawer: React.FC<AiCoachDrawerProps> = ({
+  activeProject,
   isOpen,
   onClose,
   activeScene,
@@ -29,77 +33,80 @@ export const AiCoachDrawer: React.FC<AiCoachDrawerProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [modelUsedNotice, setModelUsedNotice] = useState<string>('');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [applyMessage, setApplyMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [generatedFor, setGeneratedFor] = useState<ApplyTarget | null>(null);
 
   if (!isOpen) return null;
 
   const credentials = getActiveAiCredentials();
 
   const handleGenerate = async () => {
+    if (loading) return;
     setLoading(true);
     setResultText('');
     setReviewReport('');
     setModelUsedNotice('');
-    try {
-      if (command === '/studio:10-review' || command === '/aiwc:10-review') {
-        const response = await fetch('/api/aiwc/review-chapter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sceneText: activeScene?.content || customPrompt || '만찬장 식탁 씬',
-            chapterData: activeChapterTitle,
-            provider: credentials.provider,
-            apiKey: credentials.apiKey,
-            model: credentials.model,
-          })
-        });
-        const data = await response.json();
-        if (data.success) {
-          setReviewReport(data.review);
-          setModelUsedNotice(credentials.model);
-        } else {
-          setReviewReport(`[검토 실패] ${data.error || 'AI 검토 보고서를 가져오지 못했습니다. AI 설정 탭에서 API 키를 확인해주세요.'}`);
-        }
+    setErrorMessage('');
+    setApplyMessage(null);
+    const styleGuide = buildStyleGuide(activeProject);
+    const isReview = command === '/studio:10-review' || command === '/aiwc:10-review';
+
+    if (isReview) {
+      const result = await requestAi<{ review: string }>('/api/aiwc/review-chapter', {
+        sceneText: (activeScene?.content || '').trim(),
+        chapterData: activeChapterTitle,
+        styleGuide,
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
+        model: credentials.model,
+      }, undefined, { projectId: activeProject.id });
+      if (result.ok) {
+        setReviewReport(result.data.review);
+        setModelUsedNotice(describeModel(result.data, credentials.model));
       } else {
-        const response = await fetch('/api/aiwc/generate-scene', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chapterTitle: activeChapterTitle || 'ch04 식탁의 서열',
-            sceneNumber: activeScene?.sceneNumber || '01',
-            sceneTitle: activeScene?.title || '가족의 시선',
-            pacingType: activeScene?.pacing || '전진',
-            isEndingHook: activeScene?.isEndingHook || false,
-            synopsis: activeScene?.synopsis || customPrompt || '식탁 서열과 팽팽한 심리전',
-            customPrompt: customPrompt,
-            provider: credentials.provider,
-            apiKey: credentials.apiKey,
-            model: credentials.model,
-          })
-        });
-        const data = await response.json();
-        if (data.success) {
-          setResultText(data.text);
-          setModelUsedNotice(data.modelUsed || credentials.model);
-        } else {
-          setResultText(`[생성 실패] ${data.error || '씬 원문을 생성하지 못했습니다. AI 설정 탭에서 API 키를 확인해주세요.'}`);
-        }
+        setErrorMessage(result.error);
       }
-    } catch (err) {
-      console.error(err);
-      setResultText('생성 중 오류가 발생했습니다. 다시 시도해주세요.');
-    } finally {
-      setLoading(false);
+    } else {
+      const result = await requestAi<{ text: string }>('/api/aiwc/generate-scene', {
+        projectTitle: activeProject.title,
+        chapterTitle: activeChapterTitle,
+        sceneNumber: activeScene?.sceneNumber || '01',
+        sceneTitle: activeScene?.title || '',
+        pacingType: activeScene?.pacing || '전진',
+        isEndingHook: activeScene?.isEndingHook || false,
+        synopsis: activeScene?.synopsis || customPrompt,
+        characters: activeScene?.characters?.join(', '),
+        customPrompt,
+        styleGuide,
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
+        model: credentials.model,
+        temperature: credentials.temperature,
+        maxTokens: credentials.maxTokens,
+      }, undefined, { projectId: activeProject.id });
+      if (result.ok) {
+        setResultText(result.data.text);
+        setGeneratedFor({ projectId: activeProject.id, sceneId: activeScene?.id });
+        setModelUsedNotice(describeModel(result.data, credentials.model));
+      } else {
+        setErrorMessage(result.error);
+      }
     }
+    setLoading(false);
   };
 
   const handleApply = () => {
-    if (resultText && onApplySceneText) {
-      onApplySceneText(resultText);
+    if (!resultText || !onApplySceneText || !generatedFor) return;
+    const result = onApplySceneText(resultText, generatedFor);
+    if (result.ok) {
+      setApplyMessage({ ok: true, text: '반영하고 저장했습니다.' });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } else {
+      setApplyMessage({ ok: false, text: result.error || '반영하지 못했습니다.' });
     }
   };
-
   const providerLabel = credentials.provider.toUpperCase();
 
   return (
@@ -227,6 +234,20 @@ export const AiCoachDrawer: React.FC<AiCoachDrawerProps> = ({
             </>
           )}
         </button>
+
+        {errorMessage && (
+          <div role="alert" className="text-[11px] text-red-800 bg-red-50 px-2.5 py-1.5 rounded border border-red-200">
+            <span className="font-bold">AI 호출 실패:</span> {errorMessage}
+          </div>
+        )}
+        {applyMessage && (
+          <div
+            role="status"
+            className={`text-[11px] font-semibold ${applyMessage.ok ? 'text-emerald-700' : 'text-red-600'}`}
+          >
+            {applyMessage.text}
+          </div>
+        )}
 
         {modelUsedNotice && (
           <div className="text-[11px] font-mono text-slate-500 bg-slate-50 px-2.5 py-1 rounded border border-slate-200 flex justify-between">
