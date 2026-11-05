@@ -1,0 +1,8 @@
+{
+  "name": "WebNovel-Studio",
+  "description": "100화 완결 4막·6아크·24챕터 공학적 플롯과 실시간 대시보드, 복선/미결 추적, AI 페어 라이팅 코치가 통합된 전문 웹소설 창작 플랫폼 WebNovel-Studio",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
