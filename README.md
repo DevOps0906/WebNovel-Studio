@@ -305,6 +305,7 @@ graph LR
 | **AI 개선안 본문 즉시 적용**| AI 코치 뷰 | `handleApplyAiTextToScene()` | AI가 퇴고/교정한 텍스트로 해당 씬 본문을 1-Click 치환 |
 | **프로젝트 전환 셀렉터** | Top GNB / 사이드바 | `handleSelectProject(id)` | 인물, 아크, 복선, 챕터 데이터를 전역 상태로 즉각 동기화 |
 | **설정 (AI 모델 & API)** | Top GNB / 사이드바 | `setIsSettingsModalOpen(true)` | Gemini/Claude/OpenAI API 키 등록 및 활성 모델 변경 |
+| **환경설정: GitHub 연동 탭** | 환경설정 모달 | `activeTab === 'github'` | GitHub PAT 토큰 체크박스 저장(`localStorage`), `main` 브랜치 즉시 푸시(`/api/git/push`) |
 
 ---
 

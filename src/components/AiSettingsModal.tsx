@@ -20,7 +20,14 @@ import {
   Database,
   Download,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Github,
+  GitBranch,
+  UploadCloud,
+  Terminal,
+  AlertTriangle,
+  Check,
+  Lock
 } from 'lucide-react';
 import {
   AiSettingsConfig,
@@ -41,7 +48,7 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [activeTab, setActiveTab] = useState<'account' | 'ai_keys'>('account');
+  const [activeTab, setActiveTab] = useState<'account' | 'ai_keys' | 'github'>('account');
   const [settings, setSettings] = useState<AiSettingsConfig>(DEFAULT_AI_SETTINGS);
   const [penName, setPenName] = useState('방하늘');
   const [showKeys, setShowKeys] = useState<{ claude: boolean; openai: boolean; gemini: boolean }>({
@@ -52,13 +59,120 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
   const [testStatus, setTestStatus] = useState<Record<string, { loading: boolean; success?: boolean; message?: string }>>({});
   const [savedNotice, setSavedNotice] = useState(false);
 
+  // GitHub Integration & Push States
+  const [githubToken, setGithubToken] = useState('');
+  const [showGithubToken, setShowGithubToken] = useState(false);
+  const [saveGithubToken, setSaveGithubToken] = useState(true);
+  const [githubRepoUrl, setGithubRepoUrl] = useState('https://github.com/theBestTrade/WebNovel-Studio.git');
+  const [githubBranch, setGithubBranch] = useState('main');
+  const [githubForcePush, setGithubForcePush] = useState(true);
+  const [gitStatus, setGitStatus] = useState<any>(null);
+  const [isLoadingGitStatus, setIsLoadingGitStatus] = useState(false);
+  const [isPushingGit, setIsPushingGit] = useState(false);
+  const [gitPushResult, setGitPushResult] = useState<{ success: boolean; message: string; output?: string } | null>(null);
+
+  const fetchGitStatus = async () => {
+    setIsLoadingGitStatus(true);
+    try {
+      const res = await fetch('/api/git/status');
+      const data = await res.json();
+      if (data.success) {
+        setGitStatus(data);
+        if (data.remoteUrl) setGithubRepoUrl(data.remoteUrl);
+        if (data.branch) setGithubBranch(data.branch);
+      }
+    } catch (err) {
+      console.error('Failed to load git status:', err);
+    } finally {
+      setIsLoadingGitStatus(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       setSettings(loadAiSettings());
       setSavedNotice(false);
       setTestStatus({});
+      setGitPushResult(null);
+
+      // Load GitHub settings from localStorage
+      const savedSaveTokenPref = localStorage.getItem('webnovel_studio_github_save_token');
+      const shouldSaveToken = savedSaveTokenPref !== 'false';
+      setSaveGithubToken(shouldSaveToken);
+
+      if (shouldSaveToken) {
+        const savedToken = localStorage.getItem('webnovel_studio_github_pat') || '';
+        setGithubToken(savedToken);
+      }
+
+      const savedRepo = localStorage.getItem('webnovel_studio_github_repo');
+      if (savedRepo) setGithubRepoUrl(savedRepo);
+
+      const savedBranch = localStorage.getItem('webnovel_studio_github_branch');
+      if (savedBranch) setGithubBranch(savedBranch);
+
+      fetchGitStatus();
     }
   }, [isOpen]);
+
+  const handlePushGit = async () => {
+    if (!githubToken.trim()) {
+      setGitPushResult({
+        success: false,
+        message: 'GitHub Personal Access Token(PAT)을 입력해주세요. (repo 권한 필요)'
+      });
+      return;
+    }
+
+    setIsPushingGit(true);
+    setGitPushResult(null);
+
+    // Save token if checkbox is checked
+    if (saveGithubToken) {
+      localStorage.setItem('webnovel_studio_github_pat', githubToken.trim());
+      localStorage.setItem('webnovel_studio_github_save_token', 'true');
+    } else {
+      localStorage.removeItem('webnovel_studio_github_pat');
+      localStorage.setItem('webnovel_studio_github_save_token', 'false');
+    }
+    localStorage.setItem('webnovel_studio_github_repo', githubRepoUrl.trim());
+    localStorage.setItem('webnovel_studio_github_branch', githubBranch.trim() || 'main');
+
+    try {
+      const res = await fetch('/api/git/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: githubToken.trim(),
+          targetRepoUrl: githubRepoUrl.trim(),
+          branch: githubBranch.trim() || 'main',
+          force: githubForcePush
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setGitPushResult({
+          success: true,
+          message: data.message || 'GitHub 원격 저장소에 성공적으로 푸시되었습니다!',
+          output: data.stdout || data.stderr
+        });
+        fetchGitStatus();
+      } else {
+        setGitPushResult({
+          success: false,
+          message: data.error || '푸시 중 오류가 발생했습니다.'
+        });
+      }
+    } catch (err: any) {
+      setGitPushResult({
+        success: false,
+        message: err.message || '푸시 요청 중 통신 오류가 발생했습니다.'
+      });
+    } finally {
+      setIsPushingGit(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -102,6 +216,20 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
   const handleSave = () => {
     saveAiSettings(settings);
     if (onSave) onSave(settings);
+
+    // Save GitHub settings based on checkbox
+    if (saveGithubToken) {
+      if (githubToken.trim()) {
+        localStorage.setItem('webnovel_studio_github_pat', githubToken.trim());
+      }
+      localStorage.setItem('webnovel_studio_github_save_token', 'true');
+    } else {
+      localStorage.removeItem('webnovel_studio_github_pat');
+      localStorage.setItem('webnovel_studio_github_save_token', 'false');
+    }
+    localStorage.setItem('webnovel_studio_github_repo', githubRepoUrl.trim());
+    localStorage.setItem('webnovel_studio_github_branch', githubBranch.trim() || 'main');
+
     setSavedNotice(true);
     setTimeout(() => {
       setSavedNotice(false);
@@ -147,7 +275,7 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                로그인 계정 관리 및 AI 모델(클로드 소넷 5.5, OpenAI sol 6.1, 제미나이) API 키를 관리합니다.
+                로그인 계정 관리, AI 모델 API 키 및 GitHub 토큰 연동/즉시 푸시를 관리합니다.
               </p>
             </div>
           </div>
@@ -159,12 +287,12 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Buttons (계정 정보 vs AI 모델 API 키 설정) */}
-        <div className="flex items-center border-b border-slate-800 bg-slate-950/30 px-6 pt-2">
+        {/* Tab Buttons (계정 정보 vs AI 모델 API 키 설정 vs GitHub 연동 & 푸시) */}
+        <div className="flex items-center border-b border-slate-800 bg-slate-950/30 px-6 pt-2 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('account')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'account'
                 ? 'border-blue-500 text-blue-400 bg-blue-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -177,7 +305,7 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('ai_keys')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'ai_keys'
                 ? 'border-blue-500 text-blue-400 bg-blue-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -186,7 +314,23 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
             <Key className="w-4 h-4" />
             <span>AI 모델 API 키 설정</span>
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
-              sonnect-5.5 · sol 6.1
+              sonnet-5.5 · sol 6.1
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('github')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all shrink-0 cursor-pointer ${
+              activeTab === 'github'
+                ? 'border-blue-500 text-blue-400 bg-blue-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Github className="w-4 h-4 text-emerald-400" />
+            <span>GitHub 연동 & 푸시</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+              main 원격 동기화
             </span>
           </button>
         </div>
@@ -708,6 +852,258 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>
                 등록된 API 키는 브라우저(LocalStorage)에만 안전하게 보관되며 외부 서버에 수집되지 않습니다.
+              </span>
+            </div>
+
+          </div>
+        )}
+
+        {/* Tab 3: GitHub 연동 & 즉시 푸시 */}
+        {activeTab === 'github' && (
+          <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto text-xs sm:text-sm">
+            
+            {/* Header / Intro Card */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-white">
+                    <Github className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-white flex items-center gap-2">
+                      <span>GitHub 원격 저장소 동기화 & 푸시</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        main 브랜치
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      GitHub Personal Access Token(PAT)을 등록하여 원격 저장소로 즉시 커밋 내역을 푸시합니다.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchGitStatus}
+                  disabled={isLoadingGitStatus}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingGitStatus ? 'animate-spin text-blue-400' : ''}`} />
+                  <span>상태 새로고침</span>
+                </button>
+              </div>
+
+              {/* Current Local Git Status Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-700/60 text-xs">
+                <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                  <span className="text-slate-400 text-[11px] block">현재 활성 브랜치</span>
+                  <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 mt-0.5">
+                    <GitBranch className="w-3.5 h-3.5" />
+                    <span>{gitStatus?.branch || 'main'}</span>
+                  </span>
+                </div>
+
+                <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                  <span className="text-slate-400 text-[11px] block">최신 로컬 커밋</span>
+                  <span className="font-mono font-bold text-blue-300 truncate block mt-0.5">
+                    {gitStatus?.lastCommit || '확인 중...'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                  <span className="text-slate-400 text-[11px] block">작업 트리 상태</span>
+                  <span className={`font-bold flex items-center gap-1 mt-0.5 ${gitStatus?.clean ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {gitStatus?.clean ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>클린 (커밋 완료)</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>수정 내역 반영됨</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* GitHub Personal Access Token (PAT) Card */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-emerald-400" />
+                  <span>GitHub Personal Access Token (PAT) *</span>
+                </label>
+
+                <a
+                  href="https://github.com/settings/tokens"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 font-semibold"
+                >
+                  <span>토큰 새로 발급받기</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              <div className="relative">
+                <input
+                  type={showGithubToken ? 'text' : 'password'}
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_로 시작하는 40자리 Personal Access Token 입력"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 pr-10 text-xs sm:text-sm text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGithubToken(!showGithubToken)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showGithubToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* CHECKBOX: 토큰 저장하기 체크박스 (요청사항 핵심) */}
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 hover:border-emerald-500/50 cursor-pointer select-none transition-all">
+                <input
+                  type="checkbox"
+                  checked={saveGithubToken}
+                  onChange={(e) => setSaveGithubToken(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 border-slate-700 bg-slate-800 cursor-pointer"
+                />
+                <div className="flex-1 space-y-0.5">
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <span>GitHub 인증 토큰을 브라우저(로컬스토리지)에 안전하게 저장하기</span>
+                    {saveGithubToken && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        자동 저장 켜짐
+                      </span>
+                    )}
+                  </span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    체크박스를 활성화하면 브라우저를 닫거나 새로고침해도 토큰이 로컬스토리지에 안전하게 보관되어 매번 재입력할 필요 없이 즉시 푸시할 수 있습니다. (체크 해제 시 저장하지 않음)
+                  </p>
+                </div>
+              </label>
+
+              {/* Token Scope Tip */}
+              <div className="p-3 bg-emerald-950/30 border border-emerald-500/20 rounded-lg text-[11px] text-emerald-300 flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <span>
+                  <strong>토큰 발급 안내:</strong> GitHub Settings ➜ Developer settings ➜ Personal access tokens (classic)에서 <code className="bg-slate-900 px-1 py-0.5 rounded text-emerald-200">repo</code> 스코프(Full control of private repositories)에 체크하여 생성하세요.
+                </span>
+              </div>
+            </div>
+
+            {/* Target Remote Repository & Branch */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
+              <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <GitBranch className="w-3.5 h-3.5 text-blue-400" />
+                <span>원격 저장소 및 대상 브랜치 설정</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2 space-y-1">
+                  <label className="text-[11px] text-slate-400 font-medium block">
+                    원격 저장소 URL (Remote Repo)
+                  </label>
+                  <input
+                    type="text"
+                    value={githubRepoUrl}
+                    onChange={(e) => setGithubRepoUrl(e.target.value)}
+                    placeholder="https://github.com/사용자명/레포이름.git"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-400 font-medium block">
+                    푸시 타겟 브랜치
+                  </label>
+                  <input
+                    type="text"
+                    value={githubBranch}
+                    onChange={(e) => setGithubBranch(e.target.value)}
+                    placeholder="main"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 font-bold focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Force Push Option Checkbox */}
+              <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={githubForcePush}
+                  onChange={(e) => setGithubForcePush(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 border-slate-700 bg-slate-900 cursor-pointer"
+                />
+                <span className="text-xs text-slate-300">
+                  원격 커밋 충돌 방지를 위해 강제 푸시(<code className="font-mono text-blue-300 text-[11px]">--force</code>) 옵션 적용
+                </span>
+              </label>
+            </div>
+
+            {/* IMMEDIATE PUSH BUTTON (요청사항 핵심: 바로 푸시 진행) */}
+            <div className="space-y-3 pt-1">
+              <button
+                type="button"
+                onClick={handlePushGit}
+                disabled={isPushingGit || !githubToken.trim()}
+                className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm shadow-lg shadow-emerald-950/60 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isPushingGit ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>GitHub 원격 저장소({githubBranch})로 푸시 진행 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-4 h-4 text-emerald-200" />
+                    <span>🚀 지금 바로 GitHub ({githubBranch} 브랜치)에 푸시하기</span>
+                  </>
+                )}
+              </button>
+
+              {/* Push Result Banner */}
+              {gitPushResult && (
+                <div
+                  className={`p-4 rounded-xl border text-xs space-y-2 animate-in fade-in duration-200 ${
+                    gitPushResult.success
+                      ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-200'
+                      : 'bg-rose-950/50 border-rose-500/50 text-rose-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    {gitPushResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    )}
+                    <span>{gitPushResult.message}</span>
+                  </div>
+
+                  {gitPushResult.output && (
+                    <details className="mt-2 text-[11px] bg-slate-950/80 p-2.5 rounded-lg border border-slate-800 font-mono text-slate-300">
+                      <summary className="cursor-pointer font-bold text-slate-400 hover:text-white mb-1">
+                        터미널 실행 로그 상세 보기
+                      </summary>
+                      <pre className="whitespace-pre-wrap overflow-x-auto text-[10px] text-slate-300 mt-1">
+                        {gitPushResult.output}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Security Notice */}
+            <div className="flex items-center gap-2 text-slate-400 text-[11px] bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                등록된 GitHub 토큰은 브라우저에만 저장되며, 외부 중계 서버에 저장되지 않고 오직 원격 푸시 명령어 실행 시에만 사용됩니다.
               </span>
             </div>
 
